@@ -168,7 +168,9 @@ function updateKnob(knob, jx, jy) {
   knob.style.transform = `translate(${dx}px, ${dy}px)`;
 }
 
-canvas.addEventListener('touchstart', e => {
+// Events auf document statt canvas – Joystick-Divs liegen über dem Canvas
+// und würden sonst die Touches abfangen.
+document.addEventListener('touchstart', e => {
   e.preventDefault();
   for (const touch of e.changedTouches) {
     const isLeft = touch.clientX < window.innerWidth / 2;
@@ -185,7 +187,7 @@ canvas.addEventListener('touchstart', e => {
   }
 }, { passive: false });
 
-canvas.addEventListener('touchmove', e => {
+document.addEventListener('touchmove', e => {
   e.preventDefault();
   for (const touch of e.changedTouches) {
     let joy, knob;
@@ -209,8 +211,8 @@ function resetJoystick(joy, knob) {
   knob.style.transform = 'translate(0px, 0px)';
 }
 
-canvas.addEventListener('touchend',    e => { for (const t of e.changedTouches) { if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob);  if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob); } }, { passive: false });
-canvas.addEventListener('touchcancel', e => { for (const t of e.changedTouches) { if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob);  if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob); } }, { passive: false });
+document.addEventListener('touchend',    e => { for (const t of e.changedTouches) { if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob);  if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob); } }, { passive: false });
+document.addEventListener('touchcancel', e => { for (const t of e.changedTouches) { if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob);  if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob); } }, { passive: false });
 
 // ── Movement constants ─────────────────────────────────────────────────────
 const speed     = 0.15;

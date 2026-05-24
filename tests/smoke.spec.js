@@ -75,13 +75,8 @@ test.describe('Tankbuster Phase 1 – Smoke Tests', () => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(1000);
 
-    const posBefore = await page.evaluate(() => {
-      // tank ist global im Spiel – Zugriff über gespeicherte Variable nicht möglich
-      // Stattdessen: Kamera-Position als Proxy (verschiebt sich mit Tank)
-      return window.__testCameraZ;
-    });
+    const posBefore = await page.evaluate(() => window.__testCameraZ);
 
-    // W-Taste 500ms drücken
     await page.keyboard.down('w');
     await page.waitForTimeout(500);
     await page.keyboard.up('w');
@@ -89,11 +84,41 @@ test.describe('Tankbuster Phase 1 – Smoke Tests', () => {
 
     const posAfter = await page.evaluate(() => window.__testCameraZ);
 
-    // Kamera-Z hat sich verändert → Tank hat sich bewegt
-    // Falls __testCameraZ nicht exportiert: Test prüft nur dass kein Fehler auftritt
     if (posBefore !== undefined && posAfter !== undefined) {
       expect(posAfter).not.toBe(posBefore);
     }
   });
 
+});
+
+// Touch-Tests benötigen hasTouch: true im Context
+test.describe('Touch-Steuerung', () => {
+  test.use({ hasTouch: true });
+
+  test('Joystick-Touch bewegt den Panzer (linke Seite, nach oben)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(1000);
+
+    const posBefore = await page.evaluate(() => window.__testCameraZ);
+
+    const cx = 85;
+    const cy = page.viewportSize().height - 95;
+
+    await page.evaluate(({ cx, cy }) => {
+      const startTouch = new Touch({ identifier: 99, target: document.body, clientX: cx, clientY: cy });
+      document.dispatchEvent(new TouchEvent('touchstart', { touches: [startTouch], changedTouches: [startTouch], bubbles: true, cancelable: true }));
+      const moveTouch = new Touch({ identifier: 99, target: document.body, clientX: cx, clientY: cy - 60 });
+      document.dispatchEvent(new TouchEvent('touchmove', { touches: [moveTouch], changedTouches: [moveTouch], bubbles: true, cancelable: true }));
+    }, { cx, cy });
+
+    await page.waitForTimeout(600);
+
+    await page.evaluate(({ cx, cy }) => {
+      const endTouch = new Touch({ identifier: 99, target: document.body, clientX: cx, clientY: cy });
+      document.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [endTouch], bubbles: true, cancelable: true }));
+    }, { cx, cy });
+
+    const posAfter = await page.evaluate(() => window.__testCameraZ);
+    expect(posAfter, 'Joystick-Touch hat den Panzer nicht bewegt').not.toBe(posBefore);
+  });
 });
