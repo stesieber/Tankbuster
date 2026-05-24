@@ -599,6 +599,9 @@ document.addEventListener('touchstart', e => {
   e.preventDefault();
   resumeAudio();
   for (const touch of e.changedTouches) {
+    // Buttons haben eigene Handler – kein Joystick aktivieren
+    if (touch.target.tagName === 'BUTTON') continue;
+
     const isLeft = touch.clientX < window.innerWidth / 2;
     const joy  = isLeft ? joystickLeft  : joystickRight;
     const base = isLeft ? leftBase      : rightBase;
@@ -645,8 +648,20 @@ function resetJoystick(joy, knob, base, isLeft) {
   base.style.bottom = '40px';
 }
 
-document.addEventListener('touchend',    e => { for (const t of e.changedTouches) { if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob,  leftBase,  true);  if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob, rightBase, false); } }, { passive: false });
-document.addEventListener('touchcancel', e => { for (const t of e.changedTouches) { if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob,  leftBase,  true);  if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob, rightBase, false); } }, { passive: false });
+function handleTouchEnd(e) {
+  for (const t of e.changedTouches) {
+    if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob,  leftBase,  true);
+    if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob, rightBase, false);
+  }
+  // Watchdog: Falls touchId nicht mehr in der aktiven Touch-Liste ist, trotzdem resetten.
+  // Verhindert hängende Joysticks wenn ein touchend verpasst wurde (z.B. über Buttons).
+  const activeIds = new Set(Array.from(e.touches).map(t => t.identifier));
+  if (joystickLeft.active  && !activeIds.has(joystickLeft.touchId))  resetJoystick(joystickLeft,  leftKnob,  leftBase,  true);
+  if (joystickRight.active && !activeIds.has(joystickRight.touchId)) resetJoystick(joystickRight, rightKnob, rightBase, false);
+}
+
+document.addEventListener('touchend',    handleTouchEnd, { passive: false });
+document.addEventListener('touchcancel', handleTouchEnd, { passive: false });
 
 // ── Kanone Cooldown ────────────────────────────────────────────────────────
 const CANNON_COOLDOWN = 3000;
