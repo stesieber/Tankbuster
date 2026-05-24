@@ -131,7 +131,7 @@ const cannon = new THREE.Mesh(
   new THREE.MeshLambertMaterial({ color: '#2a4a1a' })
 );
 cannon.rotation.x = Math.PI / 2;
-cannon.position.set(0, 0, 2.5);
+cannon.position.set(0, 0, -2.5); // -Z = Vorderseite (Tank fährt in -Z)
 cannon.castShadow = true;
 turret.add(cannon);
 
@@ -173,7 +173,7 @@ function buildDummyTank(pos) {
     new THREE.MeshLambertMaterial({ color: '#550000' })
   );
   dCannon.rotation.x = Math.PI / 2;
-  dCannon.position.set(0, 0, 2.5);
+  dCannon.position.set(0, 0, -2.5);
   dTurret.add(dCannon);
 
   group.position.copy(pos);
@@ -430,11 +430,15 @@ function getHitSide(projectileVelocity, targetObject) {
 const projectiles = [];
 
 function fireShell() {
+  // Kanone: CylinderGeometry, rotation.x=PI/2 → lokale -Y zeigt in Welt-Z=-Z (vorne).
+  // (0,-1,0) in Kanonen-Lokalraum → (0,0,-1) Weltrichtung = Vorwärts.
+  const dir = new THREE.Vector3(0, -1, 0);
+  dir.transformDirection(cannon.matrixWorld).normalize();
+
+  // Mündungsspitze = Kanonenmitte + 2 Einheiten in Schussrichtung
   const muzzlePos = new THREE.Vector3();
   cannon.getWorldPosition(muzzlePos);
-
-  const dir = new THREE.Vector3(0, 0, 1);
-  dir.transformDirection(cannon.matrixWorld).normalize();
+  muzzlePos.addScaledVector(dir, 2);
 
   const geo = new THREE.SphereGeometry(0.2, 6, 6);
   const mat = new THREE.MeshLambertMaterial({ color: '#333' });
@@ -460,11 +464,12 @@ function fireShell() {
 }
 
 function fireMG() {
+  const dir = new THREE.Vector3(0, -1, 0);
+  dir.transformDirection(cannon.matrixWorld).normalize();
+
   const muzzlePos = new THREE.Vector3();
   cannon.getWorldPosition(muzzlePos);
-
-  const dir = new THREE.Vector3(0, 0, 1);
-  dir.transformDirection(cannon.matrixWorld).normalize();
+  muzzlePos.addScaledVector(dir, 2);
 
   const geo = new THREE.SphereGeometry(0.08, 4, 4);
   const mat = new THREE.MeshLambertMaterial({ color: '#FFD700' });
@@ -698,7 +703,7 @@ let scopeActive = false;
 function toggleScope() {
   scopeActive = !scopeActive;
   if (scopeActive) {
-    camera.fov = 20;
+    camera.fov = 15;
     camera.updateProjectionMatrix();
     scopeEl.style.display = 'block';
     btnScope.classList.add('active');
@@ -708,6 +713,24 @@ function toggleScope() {
     scopeEl.style.display = 'none';
     btnScope.classList.remove('active');
   }
+}
+
+function updateScopeCamera() {
+  // Zielkamera: Blick entlang der Kanonenlinie von hinten durch das Rohr
+  const dir = new THREE.Vector3(0, -1, 0);
+  dir.transformDirection(cannon.matrixWorld).normalize();
+
+  const cannonCenter = new THREE.Vector3();
+  cannon.getWorldPosition(cannonCenter);
+
+  // Kameraposition: hinter dem Verschluss, leicht erhöht
+  const camPos = cannonCenter.clone().addScaledVector(dir, -3);
+  camPos.y += 0.2;
+  camera.position.copy(camPos);
+
+  // Blickziel: weit vor der Mündung entlang der Schussrichtung
+  const lookTarget = cannonCenter.clone().addScaledVector(dir, 300);
+  camera.lookAt(lookTarget);
 }
 
 btnScope.addEventListener('click', () => toggleScope());
@@ -781,6 +804,9 @@ function animate() {
   behind.applyQuaternion(tank.quaternion);
   camera.position.copy(tankPos).add(behind);
   camera.lookAt(tankPos.x, tankPos.y + 2, tankPos.z);
+
+  // Scope überschreibt die Third-Person-Kamera
+  if (scopeActive) updateScopeCamera();
 
   // Test-Hooks für Playwright
   window.__testCameraZ = camera.position.z;

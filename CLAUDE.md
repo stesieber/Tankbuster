@@ -110,6 +110,34 @@ Immer die GitHub Pages Links ausgeben:
 
 ---
 
+## Koordinatensystem & 3D-Ausrichtung
+
+Three.js rechtshändiges System. Diese Konventionen gelten im gesamten Projekt:
+
+| Achse | Bedeutung |
+|---|---|
+| **-Z** | Vorwärts (Panzer fährt in -Z mit `translateZ(-speed)`) |
+| **+Z** | Rückwärts / Kamerarichtung (`behind = (0, 8, +15)` = hinter dem Panzer) |
+| **+Y** | Oben |
+| **+X** | Rechts |
+
+### Kanone
+
+- Geometrie: `CylinderGeometry` mit `rotation.x = PI/2` → Zylinderachse (lokale Y) zeigt im Elternraum auf **+Z**
+- Position: `(0, 0, -2.5)` im Turret-Lokalraum = **Vorderseite** des Panzers
+- Mündungsspitze in Weltkoordinaten: `cannon.getWorldPosition() + dir * 2`
+- **Schussrichtung**: `new THREE.Vector3(0, -1, 0)` im Kanonenloklaraum  
+  → `transformDirection(cannon.matrixWorld)` ergibt Welt-`(0, 0, -1)` = vorwärts
+- `__testCannonDir` verwendet `(0, 1, 0)` → ergibt `(0, 0, +1)` (Zylinder-Längsachse, nicht Schussrichtung; Betrag `|z| > 0.9` korrekt)
+
+### Zielfernrohr-Kamera
+
+Im Scope-Modus überschreibt `updateScopeCamera()` die Third-Person-Kamera:
+- Position: 3 Einheiten **hinter** der Mündung (entgegengesetzt zur Schussrichtung)
+- `camera.lookAt()` auf einen Punkt 300 Einheiten vor der Mündung
+
+---
+
 ## Bekannte Eigenheiten
 
 - `version.js` wird von GitHub Actions für Preview-Deployments überschrieben. Die committed Version enthält `IS_PREVIEW=false` als Stub – das ist korrekt.
