@@ -95,30 +95,63 @@ test.describe('Tankbuster Phase 1 – Smoke Tests', () => {
 test.describe('Touch-Steuerung', () => {
   test.use({ hasTouch: true });
 
+  // Hilfsfunktion: Touch-Event via page.evaluate dispatchen
+  async function dispatchTouch(page, type, id, x, y) {
+    await page.evaluate(({ type, id, x, y }) => {
+      const t = new Touch({ identifier: id, target: document.body, clientX: x, clientY: y });
+      const active = type === 'touchend' ? [] : [t];
+      document.dispatchEvent(new TouchEvent(type, { touches: active, changedTouches: [t], bubbles: true, cancelable: true }));
+    }, { type, id, x, y });
+  }
+
   test('Joystick-Touch bewegt den Panzer (linke Seite, nach oben)', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(1000);
 
     const posBefore = await page.evaluate(() => window.__testCameraZ);
-
     const cx = 85;
     const cy = page.viewportSize().height - 95;
 
-    await page.evaluate(({ cx, cy }) => {
-      const startTouch = new Touch({ identifier: 99, target: document.body, clientX: cx, clientY: cy });
-      document.dispatchEvent(new TouchEvent('touchstart', { touches: [startTouch], changedTouches: [startTouch], bubbles: true, cancelable: true }));
-      const moveTouch = new Touch({ identifier: 99, target: document.body, clientX: cx, clientY: cy - 60 });
-      document.dispatchEvent(new TouchEvent('touchmove', { touches: [moveTouch], changedTouches: [moveTouch], bubbles: true, cancelable: true }));
-    }, { cx, cy });
-
+    await dispatchTouch(page, 'touchstart', 99, cx, cy);
+    await dispatchTouch(page, 'touchmove',  99, cx, cy - 60);
     await page.waitForTimeout(600);
-
-    await page.evaluate(({ cx, cy }) => {
-      const endTouch = new Touch({ identifier: 99, target: document.body, clientX: cx, clientY: cy });
-      document.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [endTouch], bubbles: true, cancelable: true }));
-    }, { cx, cy });
+    await dispatchTouch(page, 'touchend',   99, cx, cy);
 
     const posAfter = await page.evaluate(() => window.__testCameraZ);
     expect(posAfter, 'Joystick-Touch hat den Panzer nicht bewegt').not.toBe(posBefore);
+  });
+
+  // REGRESSION TEST: Joystick am unteren Rand des Joystick-Bereichs antippen
+  // Bug: getBoundingClientRect() lieferte auf Mobile falsche Koordinaten,
+  //      sodass nur Touches ÜBER dem Joystick registriert wurden.
+  test('Joystick reagiert bei Touch am unteren Joystick-Rand', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(1000);
+
+    // Touch am untersten Punkt des linken Joystick-Bereichs (bottom: 40px)
+    const cx = 85;
+    const cy = page.viewportSize().height - 50; // fast am Bildschirmrand
+
+    await dispatchTouch(page, 'touchstart', 42, cx, cy);
+    // Joystick muss nach touchstart aktiv sein
+    const isActive = await page.evaluate(() => window.__testJoystickLeft?.active);
+    expect(isActive, 'Joystick wurde am unteren Rand nicht aktiviert').toBe(true);
+
+    await dispatchTouch(page, 'touchend', 42, cx, cy);
+  });
+
+  // REGRESSION TEST: Kanone zeigt nach vorne (nicht seitwärts)
+  // rotation.z=PI/2 (Bug): Zylinder-Längsachse zeigt in X-Richtung (seitwärts), |dir.z| ≈ 0
+  // rotation.x=PI/2 (Fix): Zylinder-Längsachse zeigt in Z-Richtung (vorwärts), |dir.z| ≈ 1
+  test('Kanone zeigt nach vorne – Längsachse entlang Z, nicht X', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const dir = await page.evaluate(() => window.__testCannonDir);
+    expect(dir, '__testCannonDir nicht gesetzt').toBeTruthy();
+    expect(
+      Math.abs(dir.z),
+      `Kanone zeigt seitwärts: dir=(${dir.x.toFixed(2)}, ${dir.y.toFixed(2)}, ${dir.z.toFixed(2)}), erwartet |z|>0.9`
+    ).toBeGreaterThan(0.9);
   });
 });

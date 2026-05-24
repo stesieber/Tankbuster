@@ -132,7 +132,7 @@ const cannon = new THREE.Mesh(
   new THREE.CylinderGeometry(0.15, 0.15, 4, 8),
   new THREE.MeshLambertMaterial({ color: '#2a4a1a' })
 );
-cannon.rotation.z = Math.PI / 2;
+cannon.rotation.x = Math.PI / 2;
 cannon.position.set(0, 0, 2.5);
 cannon.castShadow = true;
 turret.add(cannon);
@@ -157,32 +157,34 @@ const rightKnob = document.getElementById('joystick-right-knob');
 const JOYSTICK_RADIUS = 50;
 const KNOB_MAX = 40;
 
-function getJoystickCenter(el) {
-  const r = el.getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-}
-
 function updateKnob(knob, jx, jy) {
   const dx = Math.min(Math.max(jx, -1), 1) * KNOB_MAX;
   const dy = Math.min(Math.max(jy, -1), 1) * KNOB_MAX;
   knob.style.transform = `translate(${dx}px, ${dy}px)`;
 }
 
-// Events auf document statt canvas – Joystick-Divs liegen über dem Canvas
-// und würden sonst die Touches abfangen.
+// Events auf document – Joystick-Divs liegen über dem Canvas.
+// Floating-Joystick: Touch-Startposition wird als Mittelpunkt verwendet.
+// Robuster als getBoundingClientRect(), das auf Mobile mit Browser-Chrome
+// (Adressleiste, Safe-Area) falsche Koordinaten liefern kann.
 document.addEventListener('touchstart', e => {
   e.preventDefault();
   for (const touch of e.changedTouches) {
     const isLeft = touch.clientX < window.innerWidth / 2;
-    const joy = isLeft ? joystickLeft : joystickRight;
+    const joy  = isLeft ? joystickLeft  : joystickRight;
+    const base = isLeft ? leftBase      : rightBase;
     if (!joy.active) {
-      joy.active = true;
+      joy.active  = true;
       joy.touchId = touch.identifier;
-      const center = getJoystickCenter(isLeft ? leftBase : rightBase);
-      joy.baseX = center.x;
-      joy.baseY = center.y;
+      joy.baseX   = touch.clientX;
+      joy.baseY   = touch.clientY;
       joy.x = 0;
       joy.y = 0;
+      // Joystick-Basis visuell zur Touch-Position verschieben
+      base.style.left   = (touch.clientX - 55) + 'px';
+      base.style.top    = (touch.clientY - 55) + 'px';
+      base.style.bottom = 'auto';
+      base.style.right  = 'auto';
     }
   }
 }, { passive: false });
@@ -203,16 +205,21 @@ document.addEventListener('touchmove', e => {
   }
 }, { passive: false });
 
-function resetJoystick(joy, knob) {
+function resetJoystick(joy, knob, base, isLeft) {
   joy.active = false;
   joy.touchId = null;
   joy.x = 0;
   joy.y = 0;
   knob.style.transform = 'translate(0px, 0px)';
+  // Joystick-Basis zurück zur CSS-Standardposition
+  base.style.left   = isLeft ? '30px' : 'auto';
+  base.style.right  = isLeft ? 'auto' : '30px';
+  base.style.top    = 'auto';
+  base.style.bottom = '40px';
 }
 
-document.addEventListener('touchend',    e => { for (const t of e.changedTouches) { if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob);  if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob); } }, { passive: false });
-document.addEventListener('touchcancel', e => { for (const t of e.changedTouches) { if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob);  if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob); } }, { passive: false });
+document.addEventListener('touchend',    e => { for (const t of e.changedTouches) { if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob,  leftBase,  true);  if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob, rightBase, false); } }, { passive: false });
+document.addEventListener('touchcancel', e => { for (const t of e.changedTouches) { if (joystickLeft.touchId  === t.identifier) resetJoystick(joystickLeft,  leftKnob,  leftBase,  true);  if (joystickRight.touchId === t.identifier) resetJoystick(joystickRight, rightKnob, rightBase, false); } }, { passive: false });
 
 // ── Movement constants ─────────────────────────────────────────────────────
 const speed     = 0.15;
@@ -261,10 +268,21 @@ function animate() {
   camera.position.copy(tankPos).add(behind);
   camera.lookAt(tankPos.x, tankPos.y + 2, tankPos.z);
 
-  // Test-Hook: Kamera-Position für Playwright-Tests zugänglich machen
+  // Test-Hooks für Playwright
   window.__testCameraZ = camera.position.z;
   window.__testTankX = tank.position.x;
   window.__testTankZ = tank.position.z;
+  const _cp = new THREE.Vector3();
+  cannon.getWorldPosition(_cp);
+  window.__testCannonWorldPos = { x: _cp.x, y: _cp.y, z: _cp.z };
+  const _tp = new THREE.Vector3();
+  tank.getWorldPosition(_tp);
+  window.__testTankWorldPos = { x: _tp.x, y: _tp.y, z: _tp.z };
+  window.__testJoystickLeft = { active: joystickLeft.active, x: joystickLeft.x, y: joystickLeft.y };
+  // Längsachse des Kanonenzylinders (lokales Y) in Weltkoordinaten
+  const _cd = new THREE.Vector3(0, 1, 0);
+  _cd.transformDirection(cannon.matrixWorld);
+  window.__testCannonDir = { x: _cd.x, y: _cd.y, z: _cd.z };
 
   // 5. Rendern
   renderer.render(scene, camera);
