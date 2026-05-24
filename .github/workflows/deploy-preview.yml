@@ -1,0 +1,36 @@
+name: Deploy Preview
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - gh-pages
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Branch-Namen für URL aufbereiten
+        id: branch
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          SLUG=$(echo "$BRANCH" | sed 's|/|-|g' | tr '[:upper:]' '[:lower:]')
+          echo "slug=$SLUG" >> $GITHUB_OUTPUT
+
+      - name: version.js erstellen
+        run: |
+          echo "window.BRANCH_NAME = '${{ steps.branch.outputs.slug }}';" > version.js
+          echo "window.IS_PREVIEW = true;" >> version.js
+
+      - name: Deploy Preview
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          destination_dir: preview/${{ steps.branch.outputs.slug }}
+          exclude_assets: '.github,*.md'
