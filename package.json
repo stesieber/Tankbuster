@@ -2,8 +2,8 @@
   "name": "tankbuster",
   "private": true,
   "scripts": {
-    "test": "PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright playwright test",
-    "test:ui": "PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright playwright test --reporter=line"
+    "test": "playwright test",
+    "test:ui": "playwright test --reporter=line"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1"
