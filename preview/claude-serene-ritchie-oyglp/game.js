@@ -11,7 +11,7 @@ scene.fog = new THREE.Fog('#87CEEB', 100, 400);
 
 // ── Renderer ───────────────────────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -258,6 +258,11 @@ function animate() {
   behind.applyQuaternion(tank.quaternion);
   camera.position.copy(tankPos).add(behind);
   camera.lookAt(tankPos.x, tankPos.y + 2, tankPos.z);
+
+  // Test-Hook: Kamera-Position für Playwright-Tests zugänglich machen
+  window.__testCameraZ = camera.position.z;
+  window.__testTankX = tank.position.x;
+  window.__testTankZ = tank.position.z;
 
   // 5. Rendern
   renderer.render(scene, camera);
