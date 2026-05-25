@@ -584,7 +584,12 @@ function updateProjectiles(dt) {
 
     // Boden
     if (p.mesh.position.y <= 0) {
-      if (p.isShell) createCrater(p.mesh.position);
+      if (p.isShell) {
+        const impactPos = p.mesh.position.clone();
+        impactPos.y = 0.1;
+        createCrater(impactPos);
+        createExplosion(impactPos);
+      }
       scene.remove(p.mesh);
       projectiles.splice(i, 1);
       continue;
@@ -666,6 +671,7 @@ function updateProjectiles(dt) {
         if (dmg === 0) {
           createRicochet(p.mesh.position.clone());
         } else {
+          createExplosion(p.mesh.position.clone());
           h.hp--;
           if (h.hp <= 0) destroyHouse(h);
         }
