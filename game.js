@@ -131,7 +131,7 @@ for (let i = 0; i < 10; i++) {
   const pos = randomPositionFarFrom(30, 180);
   group.position.set(pos.x, h / 2, pos.z);
   scene.add(group);
-  houses.push({ mesh: group, hp: 3, destroyed: false });
+  houses.push({ mesh: group, hp: 3, destroyed: false, bw: w, bh: h, bd: d, ramHits: 0, beingRammed: false, holeMesh: null });
 }
 
 // ── Trees ──────────────────────────────────────────────────────────────────
@@ -172,6 +172,68 @@ function updateFallingTrees(dt) {
       t.fallen = true;
     }
     t.group.quaternion.setFromAxisAngle(t.axis, t.fallAngle);
+  }
+}
+
+// ── Büsche ─────────────────────────────────────────────────────────────────
+const bushes = [];
+
+function buildBush(r) {
+  const group = new THREE.Group();
+  const offsets = [
+    [0,        r * 0.55, 0],
+    [r * 0.45, r * 0.35, 0],
+    [-r * 0.45, r * 0.35, 0],
+    [0,        r * 0.35, r * 0.45],
+    [0,        r * 0.35, -r * 0.45],
+  ];
+  for (const [ox, oy, oz] of offsets) {
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(r * 0.65, 6, 6),
+      new THREE.MeshLambertMaterial({ color: '#2e6b1c' })
+    );
+    sphere.position.set(ox, oy, oz);
+    sphere.castShadow = true;
+    group.add(sphere);
+  }
+  return group;
+}
+
+for (let i = 0; i < 25; i++) {
+  const r = randomBetween(0.8, 1.5);
+  const group = buildBush(r);
+  const pos = randomPositionFarFrom(10, 195);
+  group.position.set(pos.x, 0, pos.z);
+  scene.add(group);
+  bushes.push({ group, radius: r, flattening: false, flattened: false, flatProgress: 0 });
+}
+
+function flattenBush(bush) {
+  if (bush.flattened || bush.flattening) return;
+  bush.flattening = true;
+  spawnParticles(bush.group.position.clone().add(new THREE.Vector3(0, 0.5, 0)), 5, 0x2e6b1c, 2, 0.6, 9.8, 0.1);
+}
+
+function updateFlatteningBushes(dt) {
+  for (const b of bushes) {
+    if (!b.flattening || b.flattened) continue;
+    b.flatProgress = Math.min(b.flatProgress + dt * 4.0, 1.0);
+    b.group.scale.y = 1.0 - 0.9 * b.flatProgress;
+    b.group.scale.x = 1.0 + 0.4 * b.flatProgress;
+    b.group.scale.z = 1.0 + 0.4 * b.flatProgress;
+    if (b.flatProgress >= 1.0) b.flattened = true;
+  }
+}
+
+function checkTankBushCollisions() {
+  const tp = tank.position;
+  for (const b of bushes) {
+    if (b.flattened || b.flattening) continue;
+    const dx = tp.x - b.group.position.x;
+    const dz = tp.z - b.group.position.z;
+    if (Math.sqrt(dx * dx + dz * dz) < b.radius + 2.5) {
+      flattenBush(b);
+    }
   }
 }
 
@@ -443,6 +505,7 @@ function createRicochet(position) {
 function destroyHouse(house) {
   house.destroyed = true;
   scene.remove(house.mesh);
+  if (house.holeMesh) scene.remove(house.holeMesh);
 
   const pos = house.mesh.position.clone();
   for (let i = 0; i < 7; i++) {
@@ -458,6 +521,65 @@ function destroyHouse(house) {
     );
     debris.rotation.y = Math.random() * Math.PI;
     scene.add(debris);
+  }
+}
+
+function applyHoleDamage(house) {
+  house.mesh.traverse(child => {
+    if (child.isMesh) {
+      child.material = new THREE.MeshLambertMaterial({ color: '#6a5040' });
+    }
+  });
+
+  const localX = tank.position.x - house.mesh.position.x;
+  const localZ = tank.position.z - house.mesh.position.z;
+  const isXFace = Math.abs(localX) / (house.bw / 2) > Math.abs(localZ) / (house.bd / 2);
+
+  const holeMat = new THREE.MeshLambertMaterial({ color: '#080808', side: THREE.DoubleSide });
+  let holeMesh;
+
+  if (isXFace) {
+    const wallSign = localX > 0 ? 1 : -1;
+    holeMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.5, 4.5), holeMat);
+    holeMesh.position.set(
+      house.mesh.position.x + wallSign * (house.bw / 2 + 0.05),
+      1.75,
+      house.mesh.position.z
+    );
+  } else {
+    const wallSign = localZ > 0 ? 1 : -1;
+    holeMesh = new THREE.Mesh(new THREE.BoxGeometry(4.5, 3.5, 0.5), holeMat);
+    holeMesh.position.set(
+      house.mesh.position.x,
+      1.75,
+      house.mesh.position.z + wallSign * (house.bd / 2 + 0.05)
+    );
+  }
+
+  scene.add(holeMesh);
+  house.holeMesh = holeMesh;
+
+  spawnParticles(house.mesh.position.clone().setY(1.5), 12, 0x999999, 5, 1.5, 9.8, 0.35);
+  spawnSmoke(house.mesh.position.clone().setY(1.5), 5, 2.5);
+}
+
+function checkTankHouseCollisions() {
+  const tankBox = new THREE.Box3().setFromObject(tank);
+  for (const h of houses) {
+    if (h.destroyed) continue;
+    const houseBox = new THREE.Box3().setFromObject(h.mesh);
+    const intersects = tankBox.intersectsBox(houseBox);
+    if (intersects && !h.beingRammed) {
+      h.beingRammed = true;
+      h.ramHits++;
+      if (h.ramHits === 1) {
+        applyHoleDamage(h);
+      } else {
+        destroyHouse(h);
+      }
+    } else if (!intersects && h.beingRammed) {
+      h.beingRammed = false;
+    }
   }
 }
 
@@ -702,6 +824,19 @@ function updateProjectiles(dt) {
           scene.remove(p.mesh);
           projectiles.splice(i, 1);
           break;
+        }
+      }
+    }
+
+    // Büsche – Projektile platten Büsche platt (Projektil fliegt durch)
+    {
+      const pp = p.mesh.position;
+      for (const b of bushes) {
+        if (b.flattened || b.flattening) continue;
+        const dx = pp.x - b.group.position.x;
+        const dz = pp.z - b.group.position.z;
+        if (Math.sqrt(dx * dx + dz * dz) < b.radius + 1.0 && pp.y < 3) {
+          flattenBush(b);
         }
       }
     }
@@ -1449,10 +1584,15 @@ function animate() {
   // 4. Projektile
   updateProjectiles(dt);
 
+  // 4b. Haus-Ramm-Kollision und Busch-Kollision mit Spieler
+  checkTankHouseCollisions();
+  checkTankBushCollisions();
+
   // 5. Partikel
   updateParticles(dt);
   updateSmoke(dt);
   updateFallingTrees(dt);
+  updateFlatteningBushes(dt);
 
   // 6. HP-Balken Positionen (Dummy-Ziele)
   updateTargetHpPositions();
