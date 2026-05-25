@@ -625,7 +625,7 @@ function cameraShake(intensity, durationMs) {
 }
 
 // ── Spielpause ──────────────────────────────────────────────────────────────
-let gamePaused = false;
+let gamePaused = true;
 
 // ── Game Over ───────────────────────────────────────────────────────────────
 function gameOver(result) {
@@ -647,6 +647,7 @@ function gameOver(result) {
 
     btn.textContent = '🔄 Nochmal spielen';
     btn.onclick = () => location.reload();
+    btn.ontouchend = (e) => { e.preventDefault(); location.reload(); };
     overlay.style.display = 'flex';
 }
 
@@ -688,10 +689,11 @@ function updateKnob(knob, jx, jy) {
 }
 
 document.addEventListener('touchstart', e => {
-  e.preventDefault();
   resumeAudio();
+  // preventDefault nur wenn kein Button berührt wird – sonst blockiert es Knopf-Klicks auf Mobile
+  const hasNonButton = Array.from(e.changedTouches).some(t => t.target.tagName !== 'BUTTON');
+  if (hasNonButton) e.preventDefault();
   for (const touch of e.changedTouches) {
-    // Buttons haben eigene Handler – kein Joystick aktivieren
     if (touch.target.tagName === 'BUTTON') continue;
 
     const isLeft = touch.clientX < window.innerWidth / 2;
@@ -845,13 +847,29 @@ btnScope.addEventListener('touchstart', e => { e.preventDefault(); toggleScope()
 
 // ── Gegner-System ──────────────────────────────────────────────────────────
 
-const ENEMY_CONFIGS = [
-    { type: 'leicht', hp: 50,  damage: 8,  speed: 0.04, accuracy: 0.7,  color: '#4CAF50', shootCooldown: 4.0 },
-    { type: 'leicht', hp: 50,  damage: 8,  speed: 0.04, accuracy: 0.7,  color: '#4CAF50', shootCooldown: 4.0 },
-    { type: 'mittel', hp: 100, damage: 20, speed: 0.07, accuracy: 0.5,  color: '#FFC107', shootCooldown: 2.5 },
-    { type: 'mittel', hp: 100, damage: 20, speed: 0.07, accuracy: 0.5,  color: '#FFC107', shootCooldown: 2.5 },
-    { type: 'schwer', hp: 150, damage: 35, speed: 0.10, accuracy: 0.25, color: '#F44336', shootCooldown: 1.5 },
-];
+const DIFFICULTY_CONFIGS = {
+    einfach: [
+        { type: 'leicht', hp: 50,  damage: 6,  speed: 0.03, accuracy: 0.9,  color: '#4CAF50', shootCooldown: 5.0 },
+        { type: 'leicht', hp: 50,  damage: 6,  speed: 0.03, accuracy: 0.9,  color: '#4CAF50', shootCooldown: 5.0 },
+        { type: 'leicht', hp: 50,  damage: 6,  speed: 0.03, accuracy: 0.9,  color: '#4CAF50', shootCooldown: 5.0 },
+        { type: 'leicht', hp: 50,  damage: 6,  speed: 0.03, accuracy: 0.9,  color: '#4CAF50', shootCooldown: 5.0 },
+        { type: 'mittel', hp: 80,  damage: 12, speed: 0.05, accuracy: 0.65, color: '#FFC107', shootCooldown: 3.5 },
+    ],
+    normal: [
+        { type: 'leicht', hp: 50,  damage: 8,  speed: 0.04, accuracy: 0.7,  color: '#4CAF50', shootCooldown: 4.0 },
+        { type: 'leicht', hp: 50,  damage: 8,  speed: 0.04, accuracy: 0.7,  color: '#4CAF50', shootCooldown: 4.0 },
+        { type: 'mittel', hp: 100, damage: 20, speed: 0.07, accuracy: 0.5,  color: '#FFC107', shootCooldown: 2.5 },
+        { type: 'mittel', hp: 100, damage: 20, speed: 0.07, accuracy: 0.5,  color: '#FFC107', shootCooldown: 2.5 },
+        { type: 'schwer', hp: 150, damage: 35, speed: 0.10, accuracy: 0.25, color: '#F44336', shootCooldown: 1.5 },
+    ],
+    schwer: [
+        { type: 'mittel', hp: 120, damage: 22, speed: 0.09, accuracy: 0.4,  color: '#FFC107', shootCooldown: 2.0 },
+        { type: 'mittel', hp: 120, damage: 22, speed: 0.09, accuracy: 0.4,  color: '#FFC107', shootCooldown: 2.0 },
+        { type: 'schwer', hp: 200, damage: 42, speed: 0.12, accuracy: 0.18, color: '#F44336', shootCooldown: 1.2 },
+        { type: 'schwer', hp: 200, damage: 42, speed: 0.12, accuracy: 0.18, color: '#F44336', shootCooldown: 1.2 },
+        { type: 'schwer', hp: 200, damage: 42, speed: 0.12, accuracy: 0.18, color: '#F44336', shootCooldown: 1.2 },
+    ],
+};
 
 const enemies = [];
 
@@ -943,9 +961,9 @@ function createEnemyHPBar(enemy) {
     enemy.hpBarFill = fill;
 }
 
-function createEnemies() {
+function createEnemies(configs) {
     const spawnedPositions = [];
-    ENEMY_CONFIGS.forEach(cfg => {
+    configs.forEach(cfg => {
         const pos = randomEnemyPosition(spawnedPositions);
         spawnedPositions.push(pos);
 
@@ -977,12 +995,29 @@ function createEnemies() {
     });
 }
 
-createEnemies();
-
 function updateEnemyCounter() {
     const alive = enemies.filter(e => e.alive).length;
     document.getElementById('enemies-left').textContent = alive;
 }
+
+function startGame(difficulty) {
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('enemy-counter').style.display = 'block';
+
+    createEnemies(DIFFICULTY_CONFIGS[difficulty]);
+
+    const total = enemies.length;
+    document.getElementById('enemies-left').textContent = total;
+    document.getElementById('enemies-total').textContent = total;
+
+    gamePaused = false;
+}
+
+['einfach', 'normal', 'schwer'].forEach(diff => {
+    const btn = document.getElementById(`btn-diff-${diff}`);
+    btn.addEventListener('click', () => { resumeAudio(); startGame(diff); });
+    btn.addEventListener('touchend', e => { e.preventDefault(); resumeAudio(); startGame(diff); }, { passive: false });
+});
 
 function createWreck(position, type) {
     const wreckColor = new THREE.MeshLambertMaterial({ color: '#222' });
@@ -1245,6 +1280,25 @@ function animate() {
   const dt = Math.min((now - lastTime) / 1000, 0.1);
   lastTime = now;
 
+  // Test-Hooks immer setzen (auch im Pausezustand)
+  window.__testEnemyCount = enemies.length;
+  window.__testPlayerHP = playerHP;
+  window.__testPlayerGetHit = (dmg) => playerGetHit(dmg);
+  window.__testTriggerGameOver = (result) => gameOver(result);
+  window.__testCameraZ = camera.position.z;
+  window.__testTankX = tank.position.x;
+  window.__testTankZ = tank.position.z;
+  window.__testJoystickLeft = { active: joystickLeft.active, x: joystickLeft.x, y: joystickLeft.y };
+  const _cp = new THREE.Vector3();
+  cannon.getWorldPosition(_cp);
+  window.__testCannonWorldPos = { x: _cp.x, y: _cp.y, z: _cp.z };
+  const _tp = new THREE.Vector3();
+  tank.getWorldPosition(_tp);
+  window.__testTankWorldPos = { x: _tp.x, y: _tp.y, z: _tp.z };
+  const _cd = new THREE.Vector3(0, 1, 0);
+  _cd.transformDirection(cannon.matrixWorld);
+  window.__testCannonDir = { x: _cd.x, y: _cd.y, z: _cd.z };
+
   if (gamePaused) {
     renderer.render(scene, camera);
     return;
@@ -1326,25 +1380,6 @@ function animate() {
     camera.position.y += (Math.random() - 0.5) * _shakeIntensity;
     camera.position.z += (Math.random() - 0.5) * _shakeIntensity;
   }
-
-  // Test-Hooks für Playwright
-  window.__testEnemyCount = enemies.length;
-  window.__testPlayerHP = playerHP;
-  window.__testPlayerGetHit = (dmg) => playerGetHit(dmg);
-  window.__testTriggerGameOver = (result) => gameOver(result);
-  window.__testCameraZ = camera.position.z;
-  window.__testTankX = tank.position.x;
-  window.__testTankZ = tank.position.z;
-  const _cp = new THREE.Vector3();
-  cannon.getWorldPosition(_cp);
-  window.__testCannonWorldPos = { x: _cp.x, y: _cp.y, z: _cp.z };
-  const _tp = new THREE.Vector3();
-  tank.getWorldPosition(_tp);
-  window.__testTankWorldPos = { x: _tp.x, y: _tp.y, z: _tp.z };
-  window.__testJoystickLeft = { active: joystickLeft.active, x: joystickLeft.x, y: joystickLeft.y };
-  const _cd = new THREE.Vector3(0, 1, 0);
-  _cd.transformDirection(cannon.matrixWorld);
-  window.__testCannonDir = { x: _cd.x, y: _cd.y, z: _cd.z };
 
   // 8. Rendern
   renderer.render(scene, camera);
