@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Tankbuster – Phase 1</title>
+  <title>Tankbuster – Phase 2</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- Preview Banner (nur in Preview-Deployments sichtbar) -->
+  <!-- Preview Banner -->
   <div id="preview-banner">
     &#9888; PREVIEW &#8211; Branch: <span id="branch-name"></span>
   </div>
 
-  <!-- HUD -->
+  <!-- HUD oben links -->
   <div id="hud">
     <div id="tank-name">&#x1F42F; Königstiger</div>
     <div id="hp-bar-container">
@@ -21,6 +21,15 @@
     </div>
     <div id="hp-text">&#x2764;&#xFE0F; HP: 100 / 100</div>
   </div>
+
+  <!-- Schuss-Zähler oben rechts -->
+  <div id="shot-counter">&#x1F4A5; Schüsse: <span id="shot-count">0</span></div>
+
+  <!-- HP-Balken der Dummy-Ziele (Overlay) -->
+  <div id="target-hud"></div>
+
+  <!-- Zielfernrohr-Overlay -->
+  <div id="scope"></div>
 
   <!-- Canvas -->
   <canvas id="gameCanvas"></canvas>
@@ -30,16 +39,19 @@
     <div id="joystick-left-knob" class="joystick-knob"></div>
   </div>
 
-  <!-- Touch-Joystick rechts (Turm) -->
+  <!-- Touch-Joystick rechts -->
   <div id="joystick-right-base" class="joystick-base">
     <div id="joystick-right-knob" class="joystick-knob"></div>
   </div>
 
-  <!-- Schiess-Button -->
+  <!-- Schiess-Buttons -->
   <button id="shoot-btn">&#x1F534; Kanone</button>
+  <button id="btn-mg">&#x1F52B; MG</button>
+  <button id="btn-scope">&#x1F52D; Zoom</button>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="version.js?v=1" onerror="void(0)"></script>
+  <script src="sounds.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
