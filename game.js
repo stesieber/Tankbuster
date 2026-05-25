@@ -521,6 +521,40 @@ function updateProjectiles(dt) {
       continue;
     }
 
+    // Feindliche Geschosse treffen Spieler
+    if (p.isEnemyShot) {
+      const playerBox = new THREE.Box3().setFromObject(tank);
+      if (playerBox.containsPoint(p.mesh.position)) {
+        playerGetHit(p.damage);
+        scene.remove(p.mesh);
+        projectiles.splice(i, 1);
+        continue;
+      }
+    }
+
+    // Spieler-Geschosse treffen Gegner
+    if (!p.isEnemyShot) {
+      let hitEnemy = false;
+      for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+        if (checkCollision(p, enemy.mesh)) {
+          const normal = new THREE.Vector3(0, 1, 0);
+          const dmg = calculateDamage(p.velocity, normal, p.damage);
+          if (dmg === 0) {
+            createRicochet(p.mesh.position.clone());
+          } else {
+            enemy.hp -= dmg;
+            if (enemy.hp <= 0) explodeEnemy(enemy);
+          }
+          scene.remove(p.mesh);
+          projectiles.splice(i, 1);
+          hitEnemy = true;
+          break;
+        }
+      }
+      if (hitEnemy) continue;
+    }
+
     // Dummy-Ziele
     let hit = false;
     for (let j = 0; j < dummyTargets.length; j++) {
@@ -566,6 +600,64 @@ function updateProjectiles(dt) {
       }
     }
   }
+}
+
+// ── Spieler HP ─────────────────────────────────────────────────────────────
+let playerHP = 100;
+const playerMaxHP = 100;
+
+function updateHPBar() {
+    const pct = Math.max(0, playerHP / playerMaxHP * 100);
+    document.getElementById('hp-bar').style.width = pct + '%';
+    document.getElementById('hp-bar').style.background =
+        pct > 60 ? '#22cc22' : pct > 30 ? '#ccaa00' : '#cc2222';
+    document.getElementById('hp-text').textContent =
+        `❤️ HP: ${Math.max(0, Math.round(playerHP))} / ${playerMaxHP}`;
+}
+
+// ── Kamera-Wackeln ──────────────────────────────────────────────────────────
+let _shakeIntensity = 0;
+let _shakeTimer = 0;
+
+function cameraShake(intensity, durationMs) {
+    _shakeIntensity = intensity;
+    _shakeTimer = durationMs;
+}
+
+// ── Spielpause ──────────────────────────────────────────────────────────────
+let gamePaused = false;
+
+// ── Game Over ───────────────────────────────────────────────────────────────
+function gameOver(result) {
+    gamePaused = true;
+    const overlay = document.getElementById('game-overlay');
+    const title   = document.getElementById('overlay-title');
+    const msg     = document.getElementById('overlay-message');
+    const btn     = document.getElementById('overlay-button');
+
+    if (result === 'gewonnen') {
+        title.textContent = '🏆 Sieg!';
+        msg.textContent   = 'Du hast alle 5 Gegner besiegt!';
+        overlay.style.background = 'rgba(0, 100, 0, 0.85)';
+    } else {
+        title.textContent = '💀 Niederlage!';
+        msg.textContent   = 'Dein Panzer wurde zerstört!';
+        overlay.style.background = 'rgba(100, 0, 0, 0.85)';
+    }
+
+    btn.textContent = '🔄 Nochmal spielen';
+    btn.onclick = () => location.reload();
+    overlay.style.display = 'flex';
+}
+
+// ── Spieler-Treffer ─────────────────────────────────────────────────────────
+function playerGetHit(damage) {
+    playerHP -= damage;
+    playerHP = Math.max(0, playerHP);
+    updateHPBar();
+    cameraShake(0.5, 300);
+    playSound('player_hit');
+    if (playerHP <= 0) gameOver('verloren');
 }
 
 // ── Input ──────────────────────────────────────────────────────────────────
@@ -751,6 +843,394 @@ function updateScopeCamera() {
 btnScope.addEventListener('click', () => toggleScope());
 btnScope.addEventListener('touchstart', e => { e.preventDefault(); toggleScope(); }, { passive: false });
 
+// ── Gegner-System ──────────────────────────────────────────────────────────
+
+const ENEMY_CONFIGS = [
+    { type: 'leicht', hp: 50,  damage: 8,  speed: 0.04, accuracy: 0.7,  color: '#4CAF50', shootCooldown: 4.0 },
+    { type: 'leicht', hp: 50,  damage: 8,  speed: 0.04, accuracy: 0.7,  color: '#4CAF50', shootCooldown: 4.0 },
+    { type: 'mittel', hp: 100, damage: 20, speed: 0.07, accuracy: 0.5,  color: '#FFC107', shootCooldown: 2.5 },
+    { type: 'mittel', hp: 100, damage: 20, speed: 0.07, accuracy: 0.5,  color: '#FFC107', shootCooldown: 2.5 },
+    { type: 'schwer', hp: 150, damage: 35, speed: 0.10, accuracy: 0.25, color: '#F44336', shootCooldown: 1.5 },
+];
+
+const enemies = [];
+
+function buildEnemyTank(bodyColor) {
+    const group = new THREE.Group();
+
+    const corpusColor = new THREE.MeshLambertMaterial({ color: bodyColor });
+    const corpus = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 6), corpusColor);
+    corpus.position.y = 1.0;
+    corpus.castShadow = true;
+    group.add(corpus);
+
+    const trackMat = new THREE.MeshLambertMaterial({ color: '#222222' });
+    [-2.3, 2.3].forEach(xOff => {
+        const tr = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 6.2), trackMat);
+        tr.position.set(xOff, 0.85, 0);
+        tr.castShadow = true;
+        group.add(tr);
+    });
+
+    const turretGroup = new THREE.Group();
+    turretGroup.position.set(0, 1.3, 0);
+    corpus.add(turretGroup);
+
+    const darkerHex = parseInt(bodyColor.replace('#', ''), 16);
+    const dr = Math.max(0, ((darkerHex >> 16) & 0xff) - 40);
+    const dg = Math.max(0, ((darkerHex >> 8) & 0xff) - 40);
+    const db = Math.max(0, (darkerHex & 0xff) - 40);
+    const darkerColor = `#${dr.toString(16).padStart(2,'0')}${dg.toString(16).padStart(2,'0')}${db.toString(16).padStart(2,'0')}`;
+
+    const turretBox = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.2, 2.5),
+        new THREE.MeshLambertMaterial({ color: darkerColor }));
+    turretBox.castShadow = true;
+    turretGroup.add(turretBox);
+
+    const eCannon = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.15, 0.15, 4, 8),
+        new THREE.MeshLambertMaterial({ color: '#222' })
+    );
+    eCannon.rotation.x = Math.PI / 2;
+    eCannon.position.set(0, 0, -2.5);
+    turretGroup.add(eCannon);
+
+    return { group, turretGroup };
+}
+
+function randomEnemyPosition(existingPositions) {
+    const RANGE = 220;
+    const MIN_FROM_PLAYER = 100;
+    const MIN_FROM_EACH = 30;
+    for (let attempt = 0; attempt < 5000; attempt++) {
+        const x = -RANGE + Math.random() * RANGE * 2;
+        const z = -RANGE + Math.random() * RANGE * 2;
+        if (Math.sqrt(x * x + z * z) < MIN_FROM_PLAYER) continue;
+        let tooClose = false;
+        for (const p of existingPositions) {
+            const dx = x - p.x;
+            const dz = z - p.z;
+            if (Math.sqrt(dx * dx + dz * dz) < MIN_FROM_EACH) { tooClose = true; break; }
+        }
+        if (!tooClose) return { x, z };
+    }
+    return { x: (Math.random() > 0.5 ? 1 : -1) * (100 + Math.random() * 120), z: 0 };
+}
+
+function createEnemyHPBar(enemy) {
+    const bar = document.createElement('div');
+    bar.style.cssText = `
+        position: fixed;
+        width: 50px;
+        height: 6px;
+        background: #333;
+        border: 1px solid #000;
+        pointer-events: none;
+        z-index: 100;
+        transform: translate(-50%, 0);
+        display: none;
+    `;
+    const fill = document.createElement('div');
+    fill.style.cssText = `
+        height: 100%;
+        background: #00ff00;
+        width: 100%;
+        transition: width 0.2s;
+    `;
+    bar.appendChild(fill);
+    document.body.appendChild(bar);
+    enemy.hpBar = bar;
+    enemy.hpBarFill = fill;
+}
+
+function createEnemies() {
+    const spawnedPositions = [];
+    ENEMY_CONFIGS.forEach(cfg => {
+        const pos = randomEnemyPosition(spawnedPositions);
+        spawnedPositions.push(pos);
+
+        const { group, turretGroup } = buildEnemyTank(cfg.color);
+        group.position.set(pos.x, 0, pos.z);
+        scene.add(group);
+
+        const enemy = {
+            mesh: group,
+            turret: turretGroup,
+            hp: cfg.hp,
+            maxHp: cfg.hp,
+            damage: cfg.damage,
+            speed: cfg.speed,
+            accuracy: cfg.accuracy,
+            type: cfg.type,
+            shootCooldown: cfg.shootCooldown,
+            shootTimer: Math.random() * cfg.shootCooldown,
+            state: 'suchen',
+            alive: true,
+            strafeDir: 0,
+            strafeCooldown: 0,
+            hpBar: null,
+            hpBarFill: null,
+        };
+
+        createEnemyHPBar(enemy);
+        enemies.push(enemy);
+    });
+}
+
+createEnemies();
+
+function updateEnemyCounter() {
+    const alive = enemies.filter(e => e.alive).length;
+    document.getElementById('enemies-left').textContent = alive;
+}
+
+function createWreck(position, type) {
+    const wreckColor = new THREE.MeshLambertMaterial({ color: '#222' });
+
+    const wBody = new THREE.Mesh(new THREE.BoxGeometry(4, 0.8, 6), wreckColor);
+    wBody.position.set(position.x, 0.4, position.z);
+    wBody.rotation.y = Math.random() * Math.PI * 0.3;
+    scene.add(wBody);
+
+    const wTurret = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.0, 2.5), wreckColor);
+    wTurret.position.set(
+        position.x + (Math.random() - 0.5) * 2,
+        0.9,
+        position.z + (Math.random() - 0.5) * 2
+    );
+    wTurret.rotation.y = Math.random() * Math.PI;
+    wTurret.rotation.z = (Math.random() - 0.5) * 0.6;
+    scene.add(wTurret);
+}
+
+function explodeEnemy(enemy) {
+    const pos = enemy.mesh.position.clone();
+
+    enemy.mesh.visible = false;
+    createWreck(pos, enemy.type);
+
+    const flashLight = new THREE.PointLight(0xff8800, 30, 50);
+    flashLight.position.copy(pos).add(new THREE.Vector3(0, 2, 0));
+    scene.add(flashLight);
+    setTimeout(() => scene.remove(flashLight), 150);
+
+    const colors = [0xff6600, 0xffaa00, 0xff3300, 0x111111];
+    for (let i = 0; i < 18; i++) {
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        spawnParticles(pos.clone().add(new THREE.Vector3(0, 1, 0)), 1, color, 10, 1.5, 9.8, 0.5);
+    }
+    spawnSmoke(pos.clone().add(new THREE.Vector3(0, 2, 0)), 12, 4.0);
+
+    playSound('explosion_large');
+
+    enemy.alive = false;
+    enemy.state = 'tot';
+    if (enemy.hpBar) enemy.hpBar.style.display = 'none';
+
+    updateEnemyCounter();
+    checkWinCondition();
+}
+
+function checkWinCondition() {
+    if (enemies.length > 0 && enemies.every(e => !e.alive)) {
+        gameOver('gewonnen');
+    }
+}
+
+function fireEnemyShell(enemy) {
+    const playerPos = new THREE.Vector3();
+    tank.getWorldPosition(playerPos);
+
+    const enemyPos = enemy.mesh.position.clone();
+    const dir = new THREE.Vector3().subVectors(playerPos, enemyPos).normalize();
+
+    dir.x += (Math.random() - 0.5) * enemy.accuracy;
+    dir.z += (Math.random() - 0.5) * enemy.accuracy;
+    dir.normalize();
+    dir.y = 0.0;
+
+    const muzzlePos = enemyPos.clone().add(new THREE.Vector3(0, 2, 0)).addScaledVector(dir, 3);
+
+    const geo = new THREE.SphereGeometry(0.2, 6, 6);
+    const mat = new THREE.MeshLambertMaterial({ color: '#ff4400' });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(muzzlePos);
+    scene.add(mesh);
+
+    createMuzzleFlash(muzzlePos.clone());
+
+    projectiles.push({
+        mesh,
+        velocity: dir.multiplyScalar(2.5),
+        alive: true,
+        distanceTravelled: 0,
+        maxDistance: 300,
+        damage: enemy.damage,
+        isShell: true,
+        isEnemyShot: true,
+    });
+}
+
+function updateEnemyAI(enemy, dt) {
+    if (!enemy.alive) return;
+
+    const playerPos = new THREE.Vector3();
+    tank.getWorldPosition(playerPos);
+
+    const enemyPos = enemy.mesh.position.clone();
+    const toPlayer = new THREE.Vector3().subVectors(playerPos, enemyPos);
+    const dist = toPlayer.length();
+
+    if (enemy.state === 'suchen') {
+        if (dist < 120) {
+            enemy.state = 'angreifen';
+        } else {
+            const dir = toPlayer.normalize();
+            enemy.mesh.position.x += dir.x * enemy.speed;
+            enemy.mesh.position.z += dir.z * enemy.speed;
+            enemy.mesh.position.y = 0;
+            enemy.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+        }
+    } else if (enemy.state === 'angreifen') {
+        if (dist > 150) {
+            enemy.state = 'suchen';
+        } else {
+            // Zufällige Seitenbewegung
+            enemy.strafeCooldown -= dt;
+            if (enemy.strafeCooldown <= 0) {
+                enemy.strafeDir = (Math.random() < 0.5) ? 1 : -1;
+                if (Math.random() < 0.3) enemy.strafeDir = 0;
+                enemy.strafeCooldown = 2.5 + Math.random() * 1.0;
+            }
+
+            if (enemy.strafeDir !== 0) {
+                const rightVec = new THREE.Vector3(
+                    toPlayer.normalize().z,
+                    0,
+                    -toPlayer.normalize().x
+                );
+                enemy.mesh.position.x += rightVec.x * enemy.speed * enemy.strafeDir;
+                enemy.mesh.position.z += rightVec.z * enemy.speed * enemy.strafeDir;
+                enemy.mesh.position.y = 0;
+            }
+
+            // Turm Richtung Spieler drehen
+            const turretWorldPos = new THREE.Vector3();
+            enemy.turret.getWorldPosition(turretWorldPos);
+            const toPlayerFromTurret = new THREE.Vector3()
+                .subVectors(playerPos, turretWorldPos)
+                .normalize();
+            const targetAngle = Math.atan2(toPlayerFromTurret.x, toPlayerFromTurret.z);
+            const worldAngle = enemy.mesh.rotation.y;
+            enemy.turret.rotation.y = targetAngle - worldAngle;
+
+            // Schuss
+            enemy.shootTimer -= dt;
+            if (enemy.shootTimer <= 0) {
+                enemy.shootTimer = enemy.shootCooldown;
+                fireEnemyShell(enemy);
+            }
+        }
+    }
+}
+
+function updateEnemyHPBars() {
+    for (const enemy of enemies) {
+        if (!enemy.alive || !enemy.hpBar) continue;
+
+        const worldPos = enemy.mesh.position.clone();
+        worldPos.y += 5;
+
+        const projected = worldPos.clone().project(camera);
+
+        if (projected.z > 1 || projected.z < -1) {
+            enemy.hpBar.style.display = 'none';
+            continue;
+        }
+
+        const sx = (projected.x * 0.5 + 0.5) * window.innerWidth;
+        const sy = (-projected.y * 0.5 + 0.5) * window.innerHeight;
+
+        enemy.hpBar.style.display = 'block';
+        enemy.hpBar.style.left = sx + 'px';
+        enemy.hpBar.style.top = sy + 'px';
+
+        const pct = Math.max(0, enemy.hp / enemy.maxHp * 100);
+        enemy.hpBarFill.style.width = pct + '%';
+        enemy.hpBarFill.style.background =
+            pct > 60 ? '#00ff00' : pct > 30 ? '#ffaa00' : '#ff2222';
+    }
+}
+
+// ── Minimap ────────────────────────────────────────────────────────────────
+
+const minimapCanvas = document.createElement('canvas');
+minimapCanvas.id = 'minimap';
+minimapCanvas.width = 120;
+minimapCanvas.height = 120;
+minimapCanvas.style.cssText = `
+    position: fixed;
+    bottom: 160px;
+    left: 20px;
+    width: 120px;
+    height: 120px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid #666;
+    border-radius: 4px;
+    z-index: 50;
+    pointer-events: none;
+`;
+document.body.appendChild(minimapCanvas);
+const minimapCtx = minimapCanvas.getContext('2d');
+
+function drawMinimap() {
+    minimapCtx.clearRect(0, 0, 120, 120);
+
+    // Koordinate world → map pixel (500 units = 120 px)
+    function worldToMap(x, z) {
+        return {
+            px: (x / 500) * 120 + 60,
+            py: (z / 500) * 120 + 60,
+        };
+    }
+
+    // Tote Gegner: graue Punkte
+    for (const e of enemies) {
+        if (e.alive) continue;
+        const { px, py } = worldToMap(e.mesh.position.x, e.mesh.position.z);
+        minimapCtx.beginPath();
+        minimapCtx.arc(px, py, 3, 0, Math.PI * 2);
+        minimapCtx.fillStyle = '#666';
+        minimapCtx.fill();
+    }
+
+    // Lebende Gegner: rote Punkte
+    for (const e of enemies) {
+        if (!e.alive) continue;
+        const r = e.type === 'schwer' ? 5 : e.type === 'mittel' ? 4 : 3;
+        const { px, py } = worldToMap(e.mesh.position.x, e.mesh.position.z);
+        minimapCtx.beginPath();
+        minimapCtx.arc(px, py, r, 0, Math.PI * 2);
+        minimapCtx.fillStyle = '#ff3333';
+        minimapCtx.fill();
+    }
+
+    // Spieler: weißes Dreieck in Fahrtrichtung
+    const { px: spx, py: spy } = worldToMap(tank.position.x, tank.position.z);
+    const angle = tank.rotation.y;
+    minimapCtx.save();
+    minimapCtx.translate(spx, spy);
+    minimapCtx.rotate(-angle);
+    minimapCtx.beginPath();
+    minimapCtx.moveTo(0, -6);
+    minimapCtx.lineTo(4, 5);
+    minimapCtx.lineTo(-4, 5);
+    minimapCtx.closePath();
+    minimapCtx.fillStyle = '#ffffff';
+    minimapCtx.fill();
+    minimapCtx.restore();
+}
+
 // ── Movement constants ─────────────────────────────────────────────────────
 const speed     = 0.15;
 const turnSpeed = 0.03;
@@ -764,6 +1244,11 @@ function animate() {
   const now = performance.now();
   const dt = Math.min((now - lastTime) / 1000, 0.1);
   lastTime = now;
+
+  if (gamePaused) {
+    renderer.render(scene, camera);
+    return;
+  }
 
   // 1. Input
   let moveY = 0;
@@ -808,8 +1293,19 @@ function animate() {
   updateParticles(dt);
   updateSmoke(dt);
 
-  // 6. HP-Balken Positionen
+  // 6. HP-Balken Positionen (Dummy-Ziele)
   updateTargetHpPositions();
+
+  // 6b. Gegner-KI
+  for (const enemy of enemies) {
+    updateEnemyAI(enemy, dt);
+  }
+
+  // 6c. Gegner HP-Balken
+  updateEnemyHPBars();
+
+  // 6d. Minimap
+  drawMinimap();
 
   // 7. Kamera
   const tankPos = new THREE.Vector3();
@@ -823,7 +1319,19 @@ function animate() {
   // Scope überschreibt die Third-Person-Kamera
   if (scopeActive) updateScopeCamera();
 
+  // 7b. Kamera-Wackeln
+  if (_shakeTimer > 0) {
+    _shakeTimer -= dt * 1000;
+    camera.position.x += (Math.random() - 0.5) * _shakeIntensity;
+    camera.position.y += (Math.random() - 0.5) * _shakeIntensity;
+    camera.position.z += (Math.random() - 0.5) * _shakeIntensity;
+  }
+
   // Test-Hooks für Playwright
+  window.__testEnemyCount = enemies.length;
+  window.__testPlayerHP = playerHP;
+  window.__testPlayerGetHit = (dmg) => playerGetHit(dmg);
+  window.__testTriggerGameOver = (result) => gameOver(result);
   window.__testCameraZ = camera.position.z;
   window.__testTankX = tank.position.x;
   window.__testTankZ = tank.position.z;
