@@ -82,6 +82,88 @@ html, body {
   text-shadow: 1px 1px 3px #000;
 }
 
+/* Schuss-Zähler */
+#shot-counter {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  color: #fff;
+  font-family: sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  text-shadow: 1px 1px 3px #000;
+  z-index: 100;
+  pointer-events: none;
+}
+
+/* Dummy-HP Overlay */
+#target-hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.target-hp-wrapper {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.target-hp-bar-bg {
+  width: 60px;
+  height: 8px;
+  background: rgba(0,0,0,0.6);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.target-hp-bar {
+  height: 100%;
+  background: #22cc22;
+  border-radius: 4px;
+  transition: width 0.2s, background 0.2s;
+}
+
+.target-hp-label {
+  color: #fff;
+  font-family: sans-serif;
+  font-size: 10px;
+  text-shadow: 1px 1px 2px #000;
+}
+
+/* Zielfernrohr */
+#scope {
+  display: none;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  background:
+    linear-gradient(to bottom, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.85) calc(50% - 60px),
+      transparent calc(50% - 60px), transparent calc(50% + 60px),
+      rgba(0,0,0,0.85) calc(50% + 60px), rgba(0,0,0,0.85) 100%);
+}
+
+#scope::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 0; right: 0;
+  height: 1px;
+  background: rgba(255,50,50,0.8);
+}
+
+#scope::after {
+  content: '';
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 1px;
+  background: rgba(255,50,50,0.8);
+}
+
 /* Joystick Base */
 .joystick-base {
   position: fixed;
@@ -120,7 +202,7 @@ html, body {
 /* Shoot Button */
 #shoot-btn {
   position: fixed;
-  bottom: 155px;
+  bottom: 240px;
   right: 45px;
   width: 70px;
   height: 70px;
@@ -128,7 +210,7 @@ html, body {
   color: #fff;
   border: none;
   border-radius: 50%;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: bold;
   cursor: pointer;
   z-index: 200;
@@ -144,4 +226,67 @@ html, body {
 #shoot-btn:active {
   background: #ff3333;
   transform: scale(0.95);
+}
+
+#shoot-btn:disabled {
+  background: #555;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* MG Button */
+#btn-mg {
+  position: fixed;
+  bottom: 155px;
+  right: 45px;
+  width: 70px;
+  height: 70px;
+  background: #1155cc;
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 200;
+  touch-action: none;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.3;
+}
+
+#btn-mg:active {
+  background: #3377ff;
+  transform: scale(0.95);
+}
+
+/* Scope/Zoom Button */
+#btn-scope {
+  position: fixed;
+  bottom: 240px;
+  right: 130px;
+  width: 55px;
+  height: 55px;
+  background: #226622;
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 200;
+  touch-action: none;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.3;
+}
+
+#btn-scope:active, #btn-scope.active {
+  background: #44aa44;
 }
