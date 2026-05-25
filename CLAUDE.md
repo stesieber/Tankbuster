@@ -104,9 +104,13 @@ npm test   # alle Tests müssen grün sein
 Nie pushen wenn Tests rot sind. Bug zuerst fixen.
 
 ### 5. Nach Abschluss der Arbeit
-Immer die GitHub Pages Links ausgeben:
-- **Preview** (aktueller Branch): `https://stesieber.github.io/Tankbuster/preview/<branch-slug>/`
-- **Production** (nach Merge auf main): https://stesieber.github.io/Tankbuster/
+Immer die GitHub Pages Links **als klickbare Markdown-Links** ausgeben:
+- **Preview** (aktueller Branch): `[Preview öffnen](https://stesieber.github.io/Tankbuster/preview/<branch-slug>/)`
+- **Production** (nach Merge auf main): [Production öffnen](https://stesieber.github.io/Tankbuster/)
+
+Beispiel für Branch `claude/phase-3-gegner-3tHAq` (Slug: `claude-phase-3-gegner-3thaq`):
+- [Preview öffnen](https://stesieber.github.io/Tankbuster/preview/claude-phase-3-gegner-3thaq/)
+- [Production öffnen](https://stesieber.github.io/Tankbuster/)
 
 ---
 
