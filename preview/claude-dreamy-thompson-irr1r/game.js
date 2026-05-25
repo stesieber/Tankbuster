@@ -454,7 +454,7 @@ function fireShell() {
     velocity: dir.multiplyScalar(3),
     alive: true,
     distanceTravelled: 0,
-    maxDistance: 400,
+    maxDistance: 1200,
     damage: 30,
     isShell: true,
   });
@@ -485,7 +485,7 @@ function fireMG() {
     alive: true,
     distanceTravelled: 0,
     maxDistance: 150,
-    damage: 5,
+    damage: 2,
     isShell: false,
   });
 }
