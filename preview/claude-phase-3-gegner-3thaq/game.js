@@ -57,26 +57,88 @@ function randomPositionFarFrom(minDist, range) {
   return { x, z };
 }
 
+function buildHouse(w, h, d) {
+  const group = new THREE.Group();
+
+  // Wände
+  const bodyMat = new THREE.MeshLambertMaterial({ color: '#8c8070' });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bodyMat);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  // Dachüberstand
+  const roofMat = new THREE.MeshLambertMaterial({ color: '#6b3a2a' });
+  const roofSlab = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, 0.3, d + 0.6), roofMat);
+  roofSlab.position.y = h / 2 + 0.15;
+  group.add(roofSlab);
+
+  const frameMat = new THREE.MeshLambertMaterial({ color: '#d4c4a0' });
+  const glassMat = new THREE.MeshLambertMaterial({ color: '#2a3a55' });
+  const doorMat  = new THREE.MeshLambertMaterial({ color: '#4a2e18' });
+
+  const winW = 1.2, winH = 1.4;
+  const winY = h * 0.1; // leicht über Gebäudemitte
+
+  // Fenster vorne + hinten (±Z)
+  const nFront = Math.max(1, Math.floor(w / 4));
+  const frontSpacing = w / (nFront + 1);
+  for (const fz of [1, -1]) {
+    const zPos = fz * (d / 2 + 0.04);
+    for (let i = 1; i <= nFront; i++) {
+      const xPos = -w / 2 + frontSpacing * i;
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(winW + 0.2, winH + 0.2, 0.06), frameMat);
+      frame.position.set(xPos, winY, zPos);
+      group.add(frame);
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(winW, winH, 0.08), glassMat);
+      glass.position.set(xPos, winY, zPos + fz * 0.02);
+      group.add(glass);
+    }
+  }
+
+  // Fenster links + rechts (±X)
+  const nSide = Math.max(1, Math.floor(d / 5));
+  const sideSpacing = d / (nSide + 1);
+  for (const fx of [1, -1]) {
+    const xPos = fx * (w / 2 + 0.04);
+    for (let i = 1; i <= nSide; i++) {
+      const zPos = -d / 2 + sideSpacing * i;
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.06, winH + 0.2, winW + 0.2), frameMat);
+      frame.position.set(xPos, winY, zPos);
+      group.add(frame);
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(0.08, winH, winW), glassMat);
+      glass.position.set(xPos + fx * 0.02, winY, zPos);
+      group.add(glass);
+    }
+  }
+
+  // Tür (Vorderseite +Z, zentriert, am Boden)
+  const doorW = Math.min(1.6, w * 0.22);
+  const doorH = Math.min(h * 0.38, 3.2);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(doorW, doorH, 0.1), doorMat);
+  door.position.set(0, -h / 2 + doorH / 2, d / 2 + 0.05);
+  group.add(door);
+
+  return group;
+}
+
 const houses = [];
 for (let i = 0; i < 10; i++) {
   const w = randomBetween(8, 15);
   const h = randomBetween(8, 20);
   const d = randomBetween(8, 15);
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshLambertMaterial({ color: '#888888' })
-  );
+  const group = buildHouse(w, h, d);
   const pos = randomPositionFarFrom(30, 180);
-  mesh.position.set(pos.x, h / 2, pos.z);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  houses.push({ mesh, hp: 3, destroyed: false });
+  group.position.set(pos.x, h / 2, pos.z);
+  scene.add(group);
+  houses.push({ mesh: group, hp: 3, destroyed: false });
 }
 
 // ── Trees ──────────────────────────────────────────────────────────────────
+const trees = [];
+
 for (let i = 0; i < 15; i++) {
-  const tree = new THREE.Group();
+  const group = new THREE.Group();
 
   const trunk = new THREE.Mesh(
     new THREE.CylinderGeometry(0.3, 0.4, 3, 8),
@@ -84,7 +146,7 @@ for (let i = 0; i < 15; i++) {
   );
   trunk.position.y = 1.5;
   trunk.castShadow = true;
-  tree.add(trunk);
+  group.add(trunk);
 
   const crown = new THREE.Mesh(
     new THREE.SphereGeometry(2.5, 8, 8),
@@ -92,11 +154,25 @@ for (let i = 0; i < 15; i++) {
   );
   crown.position.y = 4.5;
   crown.castShadow = true;
-  tree.add(crown);
+  group.add(crown);
 
   const pos = randomPositionFarFrom(15, 190);
-  tree.position.set(pos.x, 0, pos.z);
-  scene.add(tree);
+  group.position.set(pos.x, 0, pos.z);
+  scene.add(group);
+  trees.push({ group, falling: false, fallen: false, fallAngle: 0, fallSpeed: 0, axis: new THREE.Vector3(1, 0, 0) });
+}
+
+function updateFallingTrees(dt) {
+  for (const t of trees) {
+    if (!t.falling || t.fallen) continue;
+    t.fallSpeed = Math.min(t.fallSpeed + dt * 2.5, 4.0);
+    t.fallAngle += t.fallSpeed * dt;
+    if (t.fallAngle >= Math.PI / 2) {
+      t.fallAngle = Math.PI / 2;
+      t.fallen = true;
+    }
+    t.group.quaternion.setFromAxisAngle(t.axis, t.fallAngle);
+  }
 }
 
 // ── Tank ───────────────────────────────────────────────────────────────────
@@ -597,6 +673,30 @@ function updateProjectiles(dt) {
         projectiles.splice(i, 1);
         hit = true;
         break;
+      }
+    }
+    if (hit) continue;
+
+    // Bäume – Kanone lässt Baum umfallen
+    if (p.isShell) {
+      for (const t of trees) {
+        if (t.falling || t.fallen) continue;
+        const tp = t.group.position;
+        const pp = p.mesh.position;
+        const dx = pp.x - tp.x;
+        const dz = pp.z - tp.z;
+        if (Math.sqrt(dx * dx + dz * dz) < 2.5 && pp.y < 7) {
+          const vLen = Math.sqrt(p.velocity.x * p.velocity.x + p.velocity.z * p.velocity.z);
+          let fx = 1, fz = 0;
+          if (vLen > 0.001) { fx = p.velocity.x / vLen; fz = p.velocity.z / vLen; }
+          t.axis.set(fz, 0, -fx);
+          t.falling = true;
+          t.fallSpeed = 0.8;
+          spawnParticles(pp.clone(), 6, 0x5a3a1a, 3, 0.8, 9.8, 0.15);
+          scene.remove(p.mesh);
+          projectiles.splice(i, 1);
+          break;
+        }
       }
     }
   }
@@ -1346,6 +1446,7 @@ function animate() {
   // 5. Partikel
   updateParticles(dt);
   updateSmoke(dt);
+  updateFallingTrees(dt);
 
   // 6. HP-Balken Positionen (Dummy-Ziele)
   updateTargetHpPositions();
