@@ -43,6 +43,73 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 
+// ── Fluss & Brücken ────────────────────────────────────────────────────────
+const RIVER_Z      = -30;
+const RIVER_HALF_W = 10;   // 20 Einheiten Gesamtbreite
+
+// Flusswasser
+const riverMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(500, RIVER_HALF_W * 2),
+  new THREE.MeshLambertMaterial({ color: '#1a5c8a' })
+);
+riverMesh.rotation.x = -Math.PI / 2;
+riverMesh.position.set(0, 0.06, RIVER_Z);
+scene.add(riverMesh);
+
+// Sandbänke beidseitig
+const sandMat = new THREE.MeshLambertMaterial({ color: '#c8b87a' });
+for (const side of [-1, 1]) {
+  const bank = new THREE.Mesh(new THREE.PlaneGeometry(500, 6), sandMat);
+  bank.rotation.x = -Math.PI / 2;
+  bank.position.set(0, 0.03, RIVER_Z + side * (RIVER_HALF_W + 3));
+  scene.add(bank);
+}
+
+// Brücken-Baukasten
+const BRIDGE_W = 9;
+const BRIDGE_L = RIVER_HALF_W * 2 + 10;  // überragt Ufer je 5 Einheiten
+
+function buildBridge(bx) {
+  const deckMat = new THREE.MeshLambertMaterial({ color: '#b0a090' });
+  const railMat = new THREE.MeshLambertMaterial({ color: '#909090' });
+  const pierMat = new THREE.MeshLambertMaterial({ color: '#7a7060' });
+
+  // Fahrbahn
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(BRIDGE_W, 0.4, BRIDGE_L), deckMat);
+  deck.position.set(bx, 0.2, RIVER_Z);
+  deck.castShadow = true;
+  deck.receiveShadow = true;
+  scene.add(deck);
+
+  // Geländer + Pfosten links/rechts
+  const halfBW = BRIDGE_W / 2;
+  for (const side of [-1, 1]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.2, BRIDGE_L), railMat);
+    rail.position.set(bx + side * (halfBW + 0.2), 1.0, RIVER_Z);
+    rail.castShadow = true;
+    scene.add(rail);
+
+    for (let pi = 0; pi <= 6; pi++) {
+      const pz = RIVER_Z - BRIDGE_L / 2 + (pi / 6) * BRIDGE_L;
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.45, 1.6, 0.45), railMat);
+      post.position.set(bx + side * (halfBW + 0.2), 1.2, pz);
+      scene.add(post);
+    }
+  }
+
+  // Stützpfeiler im Wasser
+  for (const pz of [-5, 5]) {
+    const pier = new THREE.Mesh(new THREE.BoxGeometry(2.5, 3.5, 2.0), pierMat);
+    pier.position.set(bx, -0.2, RIVER_Z + pz);
+    pier.castShadow = true;
+    scene.add(pier);
+  }
+}
+
+buildBridge(-85);
+buildBridge(10);
+buildBridge(90);
+
 // ── Houses ─────────────────────────────────────────────────────────────────
 function randomBetween(min, max) {
   return min + Math.random() * (max - min);
@@ -53,7 +120,10 @@ function randomPositionFarFrom(minDist, range) {
   do {
     x = randomBetween(-range, range);
     z = randomBetween(-range, range);
-  } while (Math.sqrt(x * x + z * z) < minDist);
+  } while (
+    Math.sqrt(x * x + z * z) < minDist ||
+    Math.abs(z - RIVER_Z) < RIVER_HALF_W + 3
+  );
   return { x, z };
 }
 
@@ -1165,6 +1235,7 @@ function randomEnemyPosition(existingPositions) {
         const x = -RANGE + Math.random() * RANGE * 2;
         const z = -RANGE + Math.random() * RANGE * 2;
         if (Math.sqrt(x * x + z * z) < MIN_FROM_PLAYER) continue;
+        if (Math.abs(z - RIVER_Z) < RIVER_HALF_W + 3) continue;
         let tooClose = false;
         for (const p of existingPositions) {
             const dx = x - p.x;
