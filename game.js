@@ -7,7 +7,7 @@ if (window.IS_PREVIEW) {
 // ── Scene ──────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#87CEEB');
-scene.fog = new THREE.Fog('#87CEEB', 100, 400);
+scene.fog = new THREE.Fog('#87CEEB', 150, 700);
 
 // ── Renderer ───────────────────────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
@@ -36,7 +36,7 @@ scene.add(dirLight);
 
 // ── Ground ─────────────────────────────────────────────────────────────────
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(500, 500),
+  new THREE.PlaneGeometry(1000, 1000),
   new THREE.MeshLambertMaterial({ color: '#4a5e23' })
 );
 ground.rotation.x = -Math.PI / 2;
@@ -49,7 +49,7 @@ const RIVER_HALF_W = 10;   // 20 Einheiten Gesamtbreite
 
 // Flusswasser
 const riverMesh = new THREE.Mesh(
-  new THREE.PlaneGeometry(500, RIVER_HALF_W * 2),
+  new THREE.PlaneGeometry(1000, RIVER_HALF_W * 2),
   new THREE.MeshLambertMaterial({ color: '#1a5c8a' })
 );
 riverMesh.rotation.x = -Math.PI / 2;
@@ -59,7 +59,7 @@ scene.add(riverMesh);
 // Sandbänke beidseitig
 const sandMat = new THREE.MeshLambertMaterial({ color: '#c8b87a' });
 for (const side of [-1, 1]) {
-  const bank = new THREE.Mesh(new THREE.PlaneGeometry(500, 6), sandMat);
+  const bank = new THREE.Mesh(new THREE.PlaneGeometry(1000, 6), sandMat);
   bank.rotation.x = -Math.PI / 2;
   bank.position.set(0, 0.03, RIVER_Z + side * (RIVER_HALF_W + 3));
   scene.add(bank);
@@ -109,6 +109,67 @@ function buildBridge(bx) {
 buildBridge(-85);
 buildBridge(10);
 buildBridge(90);
+
+// ── Straßennetz ────────────────────────────────────────────────────────────
+const ROAD_Y    = 0.04;
+const SOUTH_ROAD_Z = RIVER_Z + RIVER_HALF_W + 9;   // -11
+const NORTH_ROAD_Z = RIVER_Z - RIVER_HALF_W - 9;   // -49
+
+const roadMat = new THREE.MeshLambertMaterial({ color: '#3a3a3a' });
+
+function buildRoad(x1, z1, x2, z2, width) {
+  const dx = x2 - x1, dz = z2 - z1;
+  const length = Math.sqrt(dx * dx + dz * dz);
+  if (length < 0.5) return;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, 0.06, length), roadMat);
+  mesh.position.set((x1 + x2) / 2, ROAD_Y, (z1 + z2) / 2);
+  mesh.rotation.y = Math.atan2(dx, dz);
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+
+// Hauptstraßen beidseitig des Flusses (Ost–West)
+buildRoad(-500, SOUTH_ROAD_Z,  500, SOUTH_ROAD_Z, 6);
+buildRoad(-500, NORTH_ROAD_Z,  500, NORTH_ROAD_Z, 6);
+
+// Nord–Süd-Verbindungsstraßen (durch die ganze Karte)
+for (const rx of [-200, 0, 200]) {
+  buildRoad(rx, -500, rx,  500, 5);
+}
+
+// Brücken-Zufahrten (verbinden Hauptstraße mit Brückenende)
+for (const bx of [-85, 10, 90]) {
+  buildRoad(bx, SOUTH_ROAD_Z, bx, RIVER_Z + BRIDGE_L / 2, 6);
+  buildRoad(bx, NORTH_ROAD_Z, bx, RIVER_Z - BRIDGE_L / 2, 6);
+}
+
+function buildHouseRoads() {
+  for (const h of houses) {
+    const hx = h.mesh.position.x;
+    const hz = h.mesh.position.z;
+    const targetZ = hz > RIVER_Z ? SOUTH_ROAD_Z : NORTH_ROAD_Z;
+    buildRoad(hx, hz, hx, targetZ, 4);
+  }
+
+  // Häuser auf der gleichen Flussseite die nahe beieinander liegen verbinden
+  for (let i = 0; i < houses.length; i++) {
+    const a = houses[i];
+    const ax = a.mesh.position.x, az = a.mesh.position.z;
+    let nearest = null, nearestDist = Infinity;
+    for (let j = 0; j < houses.length; j++) {
+      if (j === i) continue;
+      const b = houses[j];
+      const bx = b.mesh.position.x, bz = b.mesh.position.z;
+      const sameSide = (az > RIVER_Z) === (bz > RIVER_Z);
+      if (!sameSide) continue;
+      const d = Math.sqrt((bx - ax) ** 2 + (bz - az) ** 2);
+      if (d < nearestDist) { nearestDist = d; nearest = b; }
+    }
+    if (nearest && nearestDist < 120) {
+      buildRoad(ax, az, nearest.mesh.position.x, nearest.mesh.position.z, 4);
+    }
+  }
+}
 
 // ── Houses ─────────────────────────────────────────────────────────────────
 function randomBetween(min, max) {
@@ -198,11 +259,12 @@ for (let i = 0; i < 10; i++) {
   const h = randomBetween(8, 20);
   const d = randomBetween(8, 15);
   const group = buildHouse(w, h, d);
-  const pos = randomPositionFarFrom(30, 180);
+  const pos = randomPositionFarFrom(30, 380);
   group.position.set(pos.x, h / 2, pos.z);
   scene.add(group);
   houses.push({ mesh: group, hp: 3, destroyed: false, bw: w, bh: h, bd: d, ramHits: 0, beingRammed: false, holeMesh: null });
 }
+buildHouseRoads();
 
 // ── Trees ──────────────────────────────────────────────────────────────────
 const trees = [];
@@ -226,11 +288,46 @@ for (let i = 0; i < 15; i++) {
   crown.castShadow = true;
   group.add(crown);
 
-  const pos = randomPositionFarFrom(15, 190);
+  const pos = randomPositionFarFrom(15, 400);
   group.position.set(pos.x, 0, pos.z);
   scene.add(group);
   trees.push({ group, falling: false, fallen: false, fallAngle: 0, fallSpeed: 0, axis: new THREE.Vector3(1, 0, 0) });
 }
+
+// ── Wälder in 3 Ecken ──────────────────────────────────────────────────────
+function spawnForest(cx, cz, radius, count) {
+  for (let i = 0; i < count; i++) {
+    const group = new THREE.Group();
+    const trunkH = randomBetween(4, 8);
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.25, 0.45, trunkH, 7),
+      new THREE.MeshLambertMaterial({ color: '#4a2e10' })
+    );
+    trunk.position.y = trunkH / 2;
+    trunk.castShadow = true;
+    group.add(trunk);
+
+    const crownR = randomBetween(2.0, 3.8);
+    const crown = new THREE.Mesh(
+      new THREE.SphereGeometry(crownR, 7, 6),
+      new THREE.MeshLambertMaterial({ color: Math.random() < 0.5 ? '#1a5e1a' : '#2d7a2d' })
+    );
+    crown.position.y = trunkH + crownR * 0.55;
+    crown.castShadow = true;
+    group.add(crown);
+
+    const angle = Math.random() * Math.PI * 2;
+    const r     = Math.sqrt(Math.random()) * radius;
+    group.position.set(cx + Math.cos(angle) * r, 0, cz + Math.sin(angle) * r);
+    scene.add(group);
+    trees.push({ group, falling: false, fallen: false, fallAngle: 0, fallSpeed: 0, axis: new THREE.Vector3(1, 0, 0) });
+  }
+}
+
+// SW (nahe Spielerstart), NW, NO, SO – 3 dichte Ecken
+spawnForest(-380, -380, 90, 55);   // NW
+spawnForest( 380, -380, 90, 55);   // NO
+spawnForest( 380,  380, 90, 55);   // SO
 
 function updateFallingTrees(dt) {
   for (const t of trees) {
@@ -272,7 +369,7 @@ function buildBush(r) {
 for (let i = 0; i < 25; i++) {
   const r = randomBetween(0.8, 1.5);
   const group = buildBush(r);
-  const pos = randomPositionFarFrom(10, 195);
+  const pos = randomPositionFarFrom(10, 420);
   group.position.set(pos.x, 0, pos.z);
   scene.add(group);
   bushes.push({ group, radius: r, flattening: false, flattened: false, flatProgress: 0 });
@@ -1228,7 +1325,7 @@ function buildEnemyTank(bodyColor) {
 }
 
 function randomEnemyPosition(existingPositions) {
-    const RANGE = 220;
+    const RANGE = 400;
     const MIN_FROM_PLAYER = 100;
     const MIN_FROM_EACH = 30;
     for (let attempt = 0; attempt < 5000; attempt++) {
