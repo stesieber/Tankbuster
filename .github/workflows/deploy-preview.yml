@@ -54,8 +54,10 @@ jobs:
 
       - name: version.js erstellen
         run: |
+          SHORT_HASH=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "window.BRANCH_NAME = '${{ steps.branch.outputs.slug }}';" > version.js
-          echo "window.IS_PREVIEW = true;" >> version.js
+          echo "window.COMMIT_HASH  = '${SHORT_HASH}';"                  >> version.js
+          echo "window.IS_PREVIEW   = true;"                             >> version.js
 
       - name: Deploy Preview
         uses: peaceiris/actions-gh-pages@v4

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Tankbuster – Phase 2</title>
+  <title>Tankbuster – Phase 3</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,6 +11,7 @@
   <!-- Preview Banner -->
   <div id="preview-banner">
     &#9888; PREVIEW &#8211; Branch: <span id="branch-name"></span>
+    &nbsp;&#xB7;&nbsp; Commit: <span id="commit-hash"></span>
   </div>
 
   <!-- HUD oben links -->
@@ -20,13 +21,13 @@
       <div id="hp-bar"></div>
     </div>
     <div id="hp-text">&#x2764;&#xFE0F; HP: 100 / 100</div>
+    <div id="enemy-counter" style="color:white; font-size:1rem; margin-top:4px; text-shadow:1px 1px 3px #000; display:none;">
+      &#x1F3AF; Gegner: <span id="enemies-left">5</span> / <span id="enemies-total">5</span>
+    </div>
   </div>
 
   <!-- Schuss-Zähler oben rechts -->
   <div id="shot-counter">&#x1F4A5; Schüsse: <span id="shot-count">0</span></div>
-
-  <!-- HP-Balken der Dummy-Ziele (Overlay) -->
-  <div id="target-hud"></div>
 
   <!-- Zielfernrohr-Overlay -->
   <div id="scope"></div>
@@ -42,6 +43,37 @@
   <!-- Touch-Joystick rechts -->
   <div id="joystick-right-base" class="joystick-base">
     <div id="joystick-right-knob" class="joystick-knob"></div>
+  </div>
+
+  <!-- Startscreen / Schwierigkeitsauswahl -->
+  <div id="start-screen" style="display:flex; position:fixed; inset:0;
+       align-items:center; justify-content:center; flex-direction:column;
+       background:rgba(0,0,0,0.78); color:white; font-family:sans-serif;
+       z-index:900; gap:14px;">
+    <div style="font-size:3.5rem; margin-bottom:4px;">&#x1F52B;</div>
+    <h1 style="font-size:2.2rem; font-weight:bold; letter-spacing:2px; text-shadow:2px 2px 8px #000; margin:0;">TANKBUSTER</h1>
+    <p style="font-size:1.1rem; opacity:0.85; margin:0 0 8px;">Schwierigkeitsgrad w&#228;hlen:</p>
+    <button id="btn-diff-einfach" style="width:220px; padding:14px 0; font-size:1.1rem; font-weight:bold;
+            background:#2e7d32; color:#fff; border:none; border-radius:10px; cursor:pointer;
+            box-shadow:0 3px 8px rgba(0,0,0,0.5);">&#x1F7E2; Einfach</button>
+    <button id="btn-diff-normal" style="width:220px; padding:14px 0; font-size:1.1rem; font-weight:bold;
+            background:#e65100; color:#fff; border:none; border-radius:10px; cursor:pointer;
+            box-shadow:0 3px 8px rgba(0,0,0,0.5);">&#x1F7E1; Normal</button>
+    <button id="btn-diff-schwer" style="width:220px; padding:14px 0; font-size:1.1rem; font-weight:bold;
+            background:#b71c1c; color:#fff; border:none; border-radius:10px; cursor:pointer;
+            box-shadow:0 3px 8px rgba(0,0,0,0.5);">&#x1F534; Schwer</button>
+  </div>
+
+  <!-- Game Overlay (Gewonnen / Verloren) -->
+  <div id="game-overlay" style="display:none; position:fixed; inset:0;
+       align-items:center; justify-content:center; flex-direction:column;
+       color:white; font-family:sans-serif; z-index:1000;">
+    <h1 id="overlay-title" style="font-size:3rem; margin-bottom:16px; text-shadow:2px 2px 6px #000;"></h1>
+    <p id="overlay-message" style="font-size:1.3rem; text-shadow:1px 1px 4px #000;"></p>
+    <button id="overlay-button" style="padding:16px 32px; font-size:1.2rem;
+            border:none; border-radius:8px; cursor:pointer; margin-top:16px;
+            background:#fff; color:#222; font-weight:bold;">
+    </button>
   </div>
 
   <!-- Schiess-Buttons -->

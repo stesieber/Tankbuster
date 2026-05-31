@@ -73,7 +73,9 @@ test.describe('Tankbuster Phase 1 – Smoke Tests', () => {
 
   test('Panzer reagiert auf Tastatur (W vorwärts)', async ({ page }) => {
     await page.goto('http://localhost:7777/');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(500);
 
     const posBefore = await page.evaluate(() => window.__testCameraZ);
 
@@ -87,6 +89,105 @@ test.describe('Tankbuster Phase 1 – Smoke Tests', () => {
     if (posBefore !== undefined && posAfter !== undefined) {
       expect(posAfter).not.toBe(posBefore);
     }
+  });
+
+});
+
+// ── Phase 3 Tests ────────────────────────────────────────────────────────────
+test.describe('Phase 3 – Gegner-System', () => {
+
+  test('Startscreen mit Schwierigkeitsauswahl erscheint', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    await expect(page.locator('#start-screen')).toBeVisible();
+    await expect(page.locator('#btn-diff-einfach')).toBeVisible();
+    await expect(page.locator('#btn-diff-normal')).toBeVisible();
+    await expect(page.locator('#btn-diff-schwer')).toBeVisible();
+  });
+
+  test('5 Gegner werden nach Spielstart erstellt', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(1000);
+
+    const count = await page.evaluate(() => window.__testEnemyCount);
+    expect(count, '5 Gegner müssen vorhanden sein').toBe(5);
+  });
+
+  test('Gegner-Zähler zeigt 5 / 5 nach Spielstart', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(500);
+
+    const counter = await page.locator('#enemies-left').textContent();
+    expect(counter.trim()).toBe('5');
+  });
+
+  test('Gewonnen-Overlay erscheint nach game-state-Manipulation', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(500);
+
+    await page.evaluate(() => window.__testTriggerGameOver('gewonnen'));
+    await page.waitForTimeout(200);
+
+    await expect(page.locator('#game-overlay')).toBeVisible();
+    await expect(page.locator('#overlay-title')).toContainText('Sieg');
+  });
+
+  test('Verloren-Overlay erscheint nach game-state-Manipulation', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(500);
+
+    await page.evaluate(() => window.__testTriggerGameOver('verloren'));
+    await page.waitForTimeout(200);
+
+    await expect(page.locator('#game-overlay')).toBeVisible();
+    await expect(page.locator('#overlay-title')).toContainText('Niederlage');
+  });
+
+  test('Nochmal-spielen-Button ist sichtbar und hat korrekten Text', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(500);
+
+    await page.evaluate(() => window.__testTriggerGameOver('verloren'));
+    await page.waitForTimeout(200);
+
+    const btn = page.locator('#overlay-button');
+    await expect(btn).toBeVisible();
+    await expect(btn).toContainText('Nochmal');
+  });
+
+  test('Minimap ist im DOM vorhanden', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    await expect(page.locator('#minimap')).toBeAttached();
+  });
+
+  test('Spieler-HP startet bei 100', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const hp = await page.evaluate(() => window.__testPlayerHP);
+    expect(hp).toBe(100);
+  });
+
+  test('Spieler-Treffer reduziert HP', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    await page.evaluate(() => window.__testPlayerGetHit(30));
+    const hp = await page.evaluate(() => window.__testPlayerHP);
+    expect(hp).toBe(70);
   });
 
 });
@@ -106,7 +207,9 @@ test.describe('Touch-Steuerung', () => {
 
   test('Joystick-Touch bewegt den Panzer (linke Seite, nach oben)', async ({ page }) => {
     await page.goto('http://localhost:7777/');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
+    await page.tap('#btn-diff-normal');
+    await page.waitForTimeout(500);
 
     const posBefore = await page.evaluate(() => window.__testCameraZ);
     const cx = 85;

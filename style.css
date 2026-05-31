@@ -96,44 +96,6 @@ html, body {
   pointer-events: none;
 }
 
-/* Dummy-HP Overlay */
-#target-hud {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 100;
-}
-
-.target-hp-wrapper {
-  position: absolute;
-  transform: translate(-50%, -100%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.target-hp-bar-bg {
-  width: 60px;
-  height: 8px;
-  background: rgba(0,0,0,0.6);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.target-hp-bar {
-  height: 100%;
-  background: #22cc22;
-  border-radius: 4px;
-  transition: width 0.2s, background 0.2s;
-}
-
-.target-hp-label {
-  color: #fff;
-  font-family: sans-serif;
-  font-size: 10px;
-  text-shadow: 1px 1px 2px #000;
-}
 
 /* Zielfernrohr */
 #scope {
