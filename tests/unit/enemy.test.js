@@ -210,3 +210,181 @@ test('Sieg: nicht wenn noch ein Gegner lebt', () => {
     const allDead = enemies.every(e => !e.alive);
     assert.ok(!allDead, 'Sieg fälschlicherweise ausgelöst');
 });
+
+// ── turnToward / normAngleDiff Hilfsfunktionen ────────────────────────────
+
+// Aus game.js extrahiert um isoliert testbar zu sein
+function turnToward(currentAngle, targetAngle, maxStep) {
+    let diff = targetAngle - currentAngle;
+    while (diff >  Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    return currentAngle + Math.sign(diff) * Math.min(Math.abs(diff), maxStep);
+}
+
+function normAngleDiff(a, b) {
+    let d = a - b;
+    while (d >  Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return Math.abs(d);
+}
+
+test('turnToward: nähert sich dem Zielwinkel schrittweise an', () => {
+    let angle = 0;
+    const target = Math.PI / 2;
+    for (let i = 0; i < 50; i++) angle = turnToward(angle, target, 0.1);
+    assert.ok(Math.abs(angle - target) < 0.01, `Winkel ${angle.toFixed(3)} hat Ziel ${target.toFixed(3)} nicht erreicht`);
+});
+
+test('turnToward: überschreitet den Zielwinkel nicht', () => {
+    let angle = 0;
+    const target = 0.1;
+    angle = turnToward(angle, target, 0.5);
+    assert.ok(angle <= target + 0.001, `turnToward überschoss: ${angle} > ${target}`);
+});
+
+test('turnToward: funktioniert korrekt über den ±π-Umbruch (von +π zu −π)', () => {
+    // Gegner steht kurz vor +π, Ziel ist kurz nach -π → kürzester Weg ist nur wenig
+    const current = Math.PI - 0.05;
+    const target = -Math.PI + 0.05;
+    const next = turnToward(current, target, 0.2);
+    // Sollte kurz über +π → Wert nahe +π (nicht riesiger Sprung zurück)
+    const diff = normAngleDiff(next, target);
+    assert.ok(diff < normAngleDiff(current, target), 'turnToward nähert sich nicht an über ±π-Grenze');
+});
+
+test('normAngleDiff: direkter Winkel ohne Umbruch', () => {
+    const d = normAngleDiff(0.5, 0.2);
+    assert.ok(Math.abs(d - 0.3) < 0.0001, `Erwartet 0.3, bekam ${d}`);
+});
+
+test('normAngleDiff: Umbruch von +π zu −π', () => {
+    const d = normAngleDiff(Math.PI - 0.1, -Math.PI + 0.1);
+    assert.ok(d < 0.25, `Umbruch-Differenz zu groß: ${d.toFixed(3)} (erwartet ~0.2)`);
+});
+
+test('normAngleDiff: große gewachsene Rotation bleibt korrekt', () => {
+    // rotation.y wächst z.B. auf 7.0 durch viele turnToward-Aufrufe
+    const grown = 7.0;
+    const target = 0.7; // atan2 liefert Wert in (-π, π]
+    const d = normAngleDiff(grown, target);
+    assert.ok(d < Math.PI, `normAngleDiff liefert unrealistisch großen Wert: ${d.toFixed(3)}`);
+    // 7.0 ≡ 0.717 (mod 2π), Differenz zum Ziel 0.7 sollte sehr klein sein
+    assert.ok(d < 0.1, `Erwartete kleine Differenz, bekam ${d.toFixed(3)}`);
+});
+
+// ── Winkelformel: Gegner fährt AUF Spieler zu ────────────────────────────
+//
+// In Three.js: translateZ(-speed) mit rotation.y=θ bewegt in Weltrichtung
+// (-sin θ, 0, -cos θ). Um in Richtung (dx, dz) zu fahren, braucht man
+// θ = atan2(-dx, -dz), NICHT atan2(dx, dz).
+
+function translateZDir(rotY) {
+    // Weltbewegungsrichtung für translateZ(-1) bei gegebener rotation.y
+    return { x: -Math.sin(rotY), z: -Math.cos(rotY) };
+}
+
+test('Winkelformel: atan2(-dx,-dz) ergibt Bewegung AUF Spieler zu (Spieler in -Z)', () => {
+    // Spieler direkt vor dem Gegner in Weltrichtung -Z
+    const toPlayer = { x: 0, z: -1 };
+    const angle = Math.atan2(-toPlayer.x, -toPlayer.z); // = 0
+    const moveDir = translateZDir(angle);
+    const dot = moveDir.x * toPlayer.x + moveDir.z * toPlayer.z;
+    assert.ok(dot > 0.99, `Bewegung zeigt von Spieler weg (dot=${dot.toFixed(3)})`);
+});
+
+test('Winkelformel: atan2(-dx,-dz) ergibt Bewegung AUF Spieler zu (Spieler in +X)', () => {
+    const toPlayer = { x: 1, z: 0 };
+    const angle = Math.atan2(-toPlayer.x, -toPlayer.z);
+    const moveDir = translateZDir(angle);
+    const dot = moveDir.x * toPlayer.x + moveDir.z * toPlayer.z;
+    assert.ok(dot > 0.99, `Bewegung zeigt von Spieler weg (dot=${dot.toFixed(3)})`);
+});
+
+test('Winkelformel: atan2(-dx,-dz) ergibt Bewegung AUF Spieler zu (diagonale Richtung)', () => {
+    const raw = { x: 3, z: -4 };
+    const len = Math.sqrt(raw.x * raw.x + raw.z * raw.z);
+    const toPlayer = { x: raw.x / len, z: raw.z / len };
+    const angle = Math.atan2(-toPlayer.x, -toPlayer.z);
+    const moveDir = translateZDir(angle);
+    const dot = moveDir.x * toPlayer.x + moveDir.z * toPlayer.z;
+    assert.ok(dot > 0.99, `Bewegung zeigt von Spieler weg (dot=${dot.toFixed(3)})`);
+});
+
+test('Winkelformel: falsche Formel atan2(dx,dz) würde vom Spieler wegfahren', () => {
+    // Dieser Test dokumentiert den Bug: die alte Formel ist 180° falsch
+    const toPlayer = { x: 0, z: -1 };
+    const wrongAngle = Math.atan2(toPlayer.x, toPlayer.z); // alte, falsche Formel
+    const moveDir = translateZDir(wrongAngle);
+    const dot = moveDir.x * toPlayer.x + moveDir.z * toPlayer.z;
+    assert.ok(dot < -0.99, `Alte Formel sollte vom Spieler wegfahren (dot=${dot.toFixed(3)})`);
+});
+
+// ── Simulierte Gegner-Annäherung über mehrere Frames ─────────────────────
+
+test('KI-Simulation: Gegner nähert sich Spieler im suchen-Zustand', () => {
+    // Minimale Simulation ohne Three.js: Position + rotation als einfache Objekte
+    // Enemy bei x=130 → ~10 Einheiten Fahrt + ~26 Frames Drehen = ~155 Frames bis < 120
+    const speed = 0.04;
+    const enemy = { x: 130, z: 0, rotY: 0 };
+    const player = { x: 0, z: 0 };
+
+    for (let frame = 0; frame < 500; frame++) {
+        const dx = player.x - enemy.x;
+        const dz = player.z - enemy.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < 120) break;
+
+        // Normieren
+        const len = Math.sqrt(dx * dx + dz * dz);
+        const ndx = dx / len;
+        const ndz = dz / len;
+
+        // Korrekte Winkelformel
+        const targetAngle = Math.atan2(-ndx, -ndz);
+
+        // Rotation normalisieren
+        while (enemy.rotY >  Math.PI) enemy.rotY -= Math.PI * 2;
+        while (enemy.rotY < -Math.PI) enemy.rotY += Math.PI * 2;
+
+        enemy.rotY = turnToward(enemy.rotY, targetAngle, 0.06);
+
+        // Vorwärts fahren wenn Winkel stimmt
+        if (normAngleDiff(enemy.rotY, targetAngle) < Math.PI * 0.5) {
+            const moveDir = translateZDir(enemy.rotY);
+            enemy.x += moveDir.x * speed * 2;
+            enemy.z += moveDir.z * speed * 2;
+        }
+    }
+
+    const finalDist = Math.sqrt(
+        (player.x - enemy.x) ** 2 + (player.z - enemy.z) ** 2
+    );
+    assert.ok(finalDist < 120, `Gegner hat Spieler nicht erreicht (Abstand: ${finalDist.toFixed(1)})`);
+});
+
+test('KI-Simulation: Gegner entfernt sich NICHT von Spieler (kein Wegfahren)', () => {
+    const speed = 0.04;
+    const enemy = { x: 150, z: 0, rotY: 0 };
+    const player = { x: 0, z: 0 };
+    const startDist = Math.sqrt((player.x - enemy.x) ** 2 + (player.z - enemy.z) ** 2);
+
+    for (let frame = 0; frame < 100; frame++) {
+        const dx = player.x - enemy.x;
+        const dz = player.z - enemy.z;
+        const len = Math.sqrt(dx * dx + dz * dz);
+        const ndx = dx / len;
+        const ndz = dz / len;
+        const targetAngle = Math.atan2(-ndx, -ndz);
+        while (enemy.rotY >  Math.PI) enemy.rotY -= Math.PI * 2;
+        while (enemy.rotY < -Math.PI) enemy.rotY += Math.PI * 2;
+        enemy.rotY = turnToward(enemy.rotY, targetAngle, 0.06);
+        if (normAngleDiff(enemy.rotY, targetAngle) < Math.PI * 0.5) {
+            const moveDir = translateZDir(enemy.rotY);
+            enemy.x += moveDir.x * speed * 2;
+            enemy.z += moveDir.z * speed * 2;
+        }
+    }
+
+    const finalDist = Math.sqrt((player.x - enemy.x) ** 2 + (player.z - enemy.z) ** 2);
+    assert.ok(finalDist < startDist, `Gegner ist weiter weg geworden: ${startDist.toFixed(1)} → ${finalDist.toFixed(1)}`);
+});
