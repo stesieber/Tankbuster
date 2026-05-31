@@ -1532,8 +1532,26 @@ function fireEnemyShell(enemy) {
     });
 }
 
+function turnToward(currentAngle, targetAngle, maxStep) {
+    let diff = targetAngle - currentAngle;
+    while (diff >  Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    return currentAngle + Math.sign(diff) * Math.min(Math.abs(diff), maxStep);
+}
+
+function normAngleDiff(a, b) {
+    let d = a - b;
+    while (d >  Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return Math.abs(d);
+}
+
 function updateEnemyAI(enemy, dt) {
     if (!enemy.alive) return;
+
+    // Rotation normalisieren damit atan2-Vergleiche korrekt funktionieren
+    while (enemy.mesh.rotation.y >  Math.PI) enemy.mesh.rotation.y -= Math.PI * 2;
+    while (enemy.mesh.rotation.y < -Math.PI) enemy.mesh.rotation.y += Math.PI * 2;
 
     const playerPos = new THREE.Vector3();
     tank.getWorldPosition(playerPos);
@@ -1541,14 +1559,6 @@ function updateEnemyAI(enemy, dt) {
     const enemyPos = enemy.mesh.position.clone();
     const toPlayer = new THREE.Vector3().subVectors(playerPos, enemyPos);
     const dist = toPlayer.length();
-
-    // Hilfsfunktion: schrittweise Rotation in Richtung targetAngle
-    function turnToward(currentAngle, targetAngle, maxStep) {
-        let diff = targetAngle - currentAngle;
-        while (diff >  Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        return currentAngle + Math.sign(diff) * Math.min(Math.abs(diff), maxStep);
-    }
 
     if (enemy.state === 'suchen') {
         if (dist < 120) {
@@ -1558,8 +1568,7 @@ function updateEnemyAI(enemy, dt) {
             const dir = toPlayer.clone().normalize();
             const targetAngle = Math.atan2(dir.x, dir.z);
             enemy.mesh.rotation.y = turnToward(enemy.mesh.rotation.y, targetAngle, 0.06);
-            const angleDiff = Math.abs(targetAngle - enemy.mesh.rotation.y);
-            if (angleDiff < Math.PI * 0.5) {
+            if (normAngleDiff(enemy.mesh.rotation.y, targetAngle) < Math.PI * 0.5) {
                 enemy.mesh.translateZ(-enemy.speed * 2);
             }
             enemy.mesh.position.y = 0;
@@ -1603,8 +1612,7 @@ function updateEnemyAI(enemy, dt) {
             if (moveDx * moveDx + moveDz * moveDz > 1) {
                 const bodyTarget = Math.atan2(moveDx, moveDz);
                 enemy.mesh.rotation.y = turnToward(enemy.mesh.rotation.y, bodyTarget, 0.06);
-                const bodyDiff = Math.abs(bodyTarget - enemy.mesh.rotation.y);
-                if (bodyDiff < Math.PI * 0.7) {
+                if (normAngleDiff(enemy.mesh.rotation.y, bodyTarget) < Math.PI * 0.7) {
                     enemy.mesh.translateZ(-enemy.speed * 2);
                 }
             }
