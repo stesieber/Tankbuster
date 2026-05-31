@@ -1406,7 +1406,7 @@ function createEnemies(configs) {
             type: cfg.type,
             shootCooldown: cfg.shootCooldown,
             shootTimer: Math.random() * cfg.shootCooldown,
-            state: 'suchen',
+            state: 'angreifen',
             alive: true,
             strafeDir: 0,
             strafeCooldown: 0,
@@ -1574,64 +1574,60 @@ function updateEnemyAI(enemy, dt) {
             enemy.mesh.position.y = 0;
         }
     } else if (enemy.state === 'angreifen') {
-        if (dist > 150) {
-            enemy.state = 'suchen';
+        // Manöver-Richtung periodisch wechseln (Umkreisen)
+        enemy.strafeCooldown -= dt;
+        if (enemy.strafeCooldown <= 0) {
+            enemy.strafeDir = Math.random() < 0.5 ? 1 : -1;
+            enemy.strafeCooldown = 3.0 + Math.random() * 2.0;
+        }
+
+        // Bewegungsziel: direkte Annäherung oder Umkreisen
+        const IDEAL_DIST = 70;
+        const toPN = toPlayer.clone().normalize();
+        const perpX = -toPN.z * enemy.strafeDir;
+        const perpZ =  toPN.x * enemy.strafeDir;
+
+        let moveTargetX, moveTargetZ;
+        if (dist > IDEAL_DIST + 20) {
+            // Zu weit → direkt auf Spieler zu (kleiner seitlicher Versatz nur wenn nah)
+            const lateralScale = dist > 200 ? 0 : 15;
+            moveTargetX = playerPos.x + perpX * lateralScale;
+            moveTargetZ = playerPos.z + perpZ * lateralScale;
+        } else if (dist < IDEAL_DIST - 20) {
+            // Zu nah → zurückfahren
+            moveTargetX = enemyPos.x - toPN.x * 25;
+            moveTargetZ = enemyPos.z - toPN.z * 25;
         } else {
-            // Manöver-Richtung periodisch wechseln (Umkreisen)
-            enemy.strafeCooldown -= dt;
-            if (enemy.strafeCooldown <= 0) {
-                enemy.strafeDir = Math.random() < 0.5 ? 1 : -1;
-                enemy.strafeCooldown = 3.0 + Math.random() * 2.0;
+            // Ideale Distanz → umkreisen
+            moveTargetX = enemyPos.x + perpX * 30;
+            moveTargetZ = enemyPos.z + perpZ * 30;
+        }
+
+        // Körper zum Bewegungsziel drehen, dann vorwärts fahren
+        const moveDx = moveTargetX - enemyPos.x;
+        const moveDz = moveTargetZ - enemyPos.z;
+        if (moveDx * moveDx + moveDz * moveDz > 1) {
+            const bodyTarget = Math.atan2(-moveDx, -moveDz);
+            enemy.mesh.rotation.y = turnToward(enemy.mesh.rotation.y, bodyTarget, 0.06);
+            if (normAngleDiff(enemy.mesh.rotation.y, bodyTarget) < Math.PI * 0.7) {
+                enemy.mesh.translateZ(-enemy.speed * 2);
             }
+        }
+        enemy.mesh.position.y = 0;
 
-            // Bewegungsziel: Spieler-Position + seitlicher Versatz (Umkreisen)
-            const IDEAL_DIST = 70;
-            const toPN = toPlayer.clone().normalize();
-            // Senkrecht zur Spielerrichtung für Umkreis-Offset
-            const perpX = -toPN.z * enemy.strafeDir;
-            const perpZ =  toPN.x * enemy.strafeDir;
+        // Turm unabhängig auf Spieler richten
+        const turretWorldPos = new THREE.Vector3();
+        enemy.turret.getWorldPosition(turretWorldPos);
+        const toPlayerFromTurret = new THREE.Vector3()
+            .subVectors(playerPos, turretWorldPos).normalize();
+        const turretTarget = Math.atan2(-toPlayerFromTurret.x, -toPlayerFromTurret.z);
+        enemy.turret.rotation.y = turretTarget - enemy.mesh.rotation.y;
 
-            let moveTargetX, moveTargetZ;
-            if (dist > IDEAL_DIST + 20) {
-                // Zu weit → auf Spieler zu, mit seitlichem Versatz
-                moveTargetX = playerPos.x + perpX * 15;
-                moveTargetZ = playerPos.z + perpZ * 15;
-            } else if (dist < IDEAL_DIST - 20) {
-                // Zu nah → zurückfahren
-                moveTargetX = enemyPos.x - toPN.x * 25;
-                moveTargetZ = enemyPos.z - toPN.z * 25;
-            } else {
-                // Ideale Distanz → umkreisen
-                moveTargetX = enemyPos.x + perpX * 30;
-                moveTargetZ = enemyPos.z + perpZ * 30;
-            }
-
-            // Körper zum Bewegungsziel drehen, dann vorwärts fahren
-            const moveDx = moveTargetX - enemyPos.x;
-            const moveDz = moveTargetZ - enemyPos.z;
-            if (moveDx * moveDx + moveDz * moveDz > 1) {
-                const bodyTarget = Math.atan2(-moveDx, -moveDz);
-                enemy.mesh.rotation.y = turnToward(enemy.mesh.rotation.y, bodyTarget, 0.06);
-                if (normAngleDiff(enemy.mesh.rotation.y, bodyTarget) < Math.PI * 0.7) {
-                    enemy.mesh.translateZ(-enemy.speed * 2);
-                }
-            }
-            enemy.mesh.position.y = 0;
-
-            // Turm unabhängig auf Spieler richten
-            const turretWorldPos = new THREE.Vector3();
-            enemy.turret.getWorldPosition(turretWorldPos);
-            const toPlayerFromTurret = new THREE.Vector3()
-                .subVectors(playerPos, turretWorldPos).normalize();
-            const turretTarget = Math.atan2(-toPlayerFromTurret.x, -toPlayerFromTurret.z);
-            enemy.turret.rotation.y = turretTarget - enemy.mesh.rotation.y;
-
-            // Schuss
-            enemy.shootTimer -= dt;
-            if (enemy.shootTimer <= 0) {
-                enemy.shootTimer = enemy.shootCooldown;
-                fireEnemyShell(enemy);
-            }
+        // Schuss
+        enemy.shootTimer -= dt;
+        if (enemy.shootTimer <= 0) {
+            enemy.shootTimer = enemy.shootCooldown;
+            fireEnemyShell(enemy);
         }
     }
 }
