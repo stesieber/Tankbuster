@@ -2,6 +2,7 @@
 if (window.IS_PREVIEW) {
   document.getElementById('preview-banner').style.display = 'block';
   document.getElementById('branch-name').textContent = window.BRANCH_NAME;
+  document.getElementById('commit-hash').textContent  = window.COMMIT_HASH;
 }
 
 // ── Scene ──────────────────────────────────────────────────────────────────
