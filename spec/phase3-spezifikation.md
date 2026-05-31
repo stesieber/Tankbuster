@@ -76,19 +76,20 @@ claude/phase-3-gegner-3tHAq
 ## Gegner-KI Zustandsmaschine
 
 ```
-suchen ──(dist < 120)──▶ angreifen
+Start ──────────────────▶ angreifen (alle Gegner, sofort)
                               │
-                         (dist > 150)
-                              │
-                              ▼
-                           suchen
+                         (kein Rückfall – Gegner verfolgen dauerhaft)
 
 angreifen:
   - Körper dreht sich schrittweise zum Bewegungsziel (max 0.06 rad/Frame)
   - Bewegt sich mit translateZ(-speed × 2) vorwärts
-  - Umkreist Spieler auf ~70 Einheiten Abstand (orbit-Winkel wechselt alle 3-5 s)
-  - Turm zielt unabhängig vom Körper auf Spieler
+  - dist > 200: direkte Annäherung ohne Seitwärts-Offset
+  - dist 90–200: Annäherung mit leichtem seitlichem Versatz
+  - dist 50–90: Umkreisen auf ~70 Einheiten (orbit-Winkel wechselt alle 3-5 s)
+  - dist < 50: zurückfahren
+  - Turm zielt unabhängig vom Körper auf Spieler (atan2(-dx,-dz))
   - Schießt aus der echten Kanonenrichtung (matrixWorld + transformDirection)
+  - Winkelformel: atan2(-dx, -dz) damit translateZ(-speed) auf Spieler zeigt
 ```
 
 ---

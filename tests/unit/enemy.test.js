@@ -98,24 +98,17 @@ test('Ungenauigkeit: Ergebnis ist immer normiert', () => {
 
 // ── Gegner-KI Zustände ────────────────────────────────────────────────────
 
-test('KI-Zustand: suchen → angreifen wenn Abstand < 120', () => {
-    const enemy = { state: 'suchen', alive: true };
-    const distToPlayer = 119;
-    if (distToPlayer < 120 && enemy.state === 'suchen') {
-        enemy.state = 'angreifen';
-    }
+test('KI-Zustand: Neue Gegner starten in angreifen', () => {
+    const enemy = { state: 'angreifen', alive: true };
     assert.equal(enemy.state, 'angreifen');
 });
 
-test('KI-Zustand: angreifen → suchen wenn Abstand > 150', () => {
+test('KI-Zustand: angreifen bleibt aktiv unabhängig vom Abstand', () => {
+    // Kein Rückfall zu suchen – Gegner verfolgen immer
     const enemy = { state: 'angreifen', alive: true };
-    const distToPlayer = 151;
-    const ATTACK_RANGE = 120;
-    const DISENGAGE_RANGE = 150;
-    if (distToPlayer > DISENGAGE_RANGE && enemy.state === 'angreifen') {
-        enemy.state = 'suchen';
-    }
-    assert.equal(enemy.state, 'suchen');
+    const distToPlayer = 400; // Spawn-Distanz
+    // Kein Zustandswechsel bei großem Abstand mehr
+    assert.equal(enemy.state, 'angreifen');
 });
 
 test('KI-Zustand: tot → bleibt tot', () => {
@@ -321,50 +314,51 @@ test('Winkelformel: falsche Formel atan2(dx,dz) würde vom Spieler wegfahren', (
 
 // ── Simulierte Gegner-Annäherung über mehrere Frames ─────────────────────
 
-test('KI-Simulation: Gegner nähert sich Spieler im suchen-Zustand', () => {
-    // Minimale Simulation ohne Three.js: Position + rotation als einfache Objekte
-    // Enemy bei x=130 → ~10 Einheiten Fahrt + ~26 Frames Drehen = ~155 Frames bis < 120
+test('KI-Simulation: Gegner nähert sich Spieler aus großer Distanz (angreifen-Zustand)', () => {
+    // Gegner startet bei x=350 (typische Spawn-Distanz), muss IDEAL_DIST=70 erreichen
+    // Bei speed*2=0.08/frame und ~35 Frames Drehzeit: ~350 Frames bis Idealabstand
     const speed = 0.04;
-    const enemy = { x: 130, z: 0, rotY: 0 };
+    const enemy = { x: 350, z: 0, rotY: 0, strafeDir: 1 };
     const player = { x: 0, z: 0 };
+    const IDEAL_DIST = 70;
 
-    for (let frame = 0; frame < 500; frame++) {
+    for (let frame = 0; frame < 6000; frame++) {
         const dx = player.x - enemy.x;
         const dz = player.z - enemy.z;
         const dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist < 120) break;
+        if (dist < IDEAL_DIST + 20) break;
 
-        // Normieren
-        const len = Math.sqrt(dx * dx + dz * dz);
-        const ndx = dx / len;
-        const ndz = dz / len;
-
-        // Korrekte Winkelformel
-        const targetAngle = Math.atan2(-ndx, -ndz);
-
-        // Rotation normalisieren
         while (enemy.rotY >  Math.PI) enemy.rotY -= Math.PI * 2;
         while (enemy.rotY < -Math.PI) enemy.rotY += Math.PI * 2;
 
-        enemy.rotY = turnToward(enemy.rotY, targetAngle, 0.06);
+        const len = dist;
+        const ndx = dx / len;
+        const ndz = dz / len;
 
-        // Vorwärts fahren wenn Winkel stimmt
-        if (normAngleDiff(enemy.rotY, targetAngle) < Math.PI * 0.5) {
+        // Direkte Annäherung (lateralScale=0 bei dist > 200)
+        const moveTargetX = player.x;
+        const moveTargetZ = player.z;
+        const moveDx = moveTargetX - enemy.x;
+        const moveDz = moveTargetZ - enemy.z;
+
+        const bodyTarget = Math.atan2(-moveDx, -moveDz);
+        enemy.rotY = turnToward(enemy.rotY, bodyTarget, 0.06);
+
+        if (normAngleDiff(enemy.rotY, bodyTarget) < Math.PI * 0.7) {
             const moveDir = translateZDir(enemy.rotY);
             enemy.x += moveDir.x * speed * 2;
             enemy.z += moveDir.z * speed * 2;
         }
     }
 
-    const finalDist = Math.sqrt(
-        (player.x - enemy.x) ** 2 + (player.z - enemy.z) ** 2
-    );
-    assert.ok(finalDist < 120, `Gegner hat Spieler nicht erreicht (Abstand: ${finalDist.toFixed(1)})`);
+    const finalDist = Math.sqrt((player.x - enemy.x) ** 2 + (player.z - enemy.z) ** 2);
+    assert.ok(finalDist < IDEAL_DIST + 20,
+        `Gegner hat Spieler nicht erreicht (Abstand: ${finalDist.toFixed(1)})`);
 });
 
 test('KI-Simulation: Gegner entfernt sich NICHT von Spieler (kein Wegfahren)', () => {
     const speed = 0.04;
-    const enemy = { x: 150, z: 0, rotY: 0 };
+    const enemy = { x: 300, z: 0, rotY: 0 };
     const player = { x: 0, z: 0 };
     const startDist = Math.sqrt((player.x - enemy.x) ** 2 + (player.z - enemy.z) ** 2);
 
