@@ -1566,7 +1566,7 @@ function updateEnemyAI(enemy, dt) {
         } else {
             // Drehen zum Spieler, dann vorwärts fahren
             const dir = toPlayer.clone().normalize();
-            const targetAngle = Math.atan2(dir.x, dir.z);
+            const targetAngle = Math.atan2(-dir.x, -dir.z);
             enemy.mesh.rotation.y = turnToward(enemy.mesh.rotation.y, targetAngle, 0.06);
             if (normAngleDiff(enemy.mesh.rotation.y, targetAngle) < Math.PI * 0.5) {
                 enemy.mesh.translateZ(-enemy.speed * 2);
@@ -1610,7 +1610,7 @@ function updateEnemyAI(enemy, dt) {
             const moveDx = moveTargetX - enemyPos.x;
             const moveDz = moveTargetZ - enemyPos.z;
             if (moveDx * moveDx + moveDz * moveDz > 1) {
-                const bodyTarget = Math.atan2(moveDx, moveDz);
+                const bodyTarget = Math.atan2(-moveDx, -moveDz);
                 enemy.mesh.rotation.y = turnToward(enemy.mesh.rotation.y, bodyTarget, 0.06);
                 if (normAngleDiff(enemy.mesh.rotation.y, bodyTarget) < Math.PI * 0.7) {
                     enemy.mesh.translateZ(-enemy.speed * 2);
@@ -1623,7 +1623,7 @@ function updateEnemyAI(enemy, dt) {
             enemy.turret.getWorldPosition(turretWorldPos);
             const toPlayerFromTurret = new THREE.Vector3()
                 .subVectors(playerPos, turretWorldPos).normalize();
-            const turretTarget = Math.atan2(toPlayerFromTurret.x, toPlayerFromTurret.z);
+            const turretTarget = Math.atan2(-toPlayerFromTurret.x, -toPlayerFromTurret.z);
             enemy.turret.rotation.y = turretTarget - enemy.mesh.rotation.y;
 
             // Schuss
