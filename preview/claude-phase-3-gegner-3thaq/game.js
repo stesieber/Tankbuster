@@ -460,6 +460,8 @@ function createCrater(position) {
   if (craters.length > MAX_CRATERS) {
     const old = craters.shift();
     scene.remove(old);
+    old.geometry.dispose();
+    old.material.dispose();
   }
 }
 
@@ -495,6 +497,8 @@ function updateParticles(dt) {
     p.mat.transparent = true;
     if (p.age >= p.lifetime) {
       scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
       particles.splice(i, 1);
     }
   }
@@ -524,6 +528,8 @@ function updateSmoke(dt) {
     p.mat.opacity = Math.max(0, 0.7 * (1 - p.age / p.lifetime));
     if (p.age >= p.lifetime) {
       scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
       smokeParticles.splice(i, 1);
     }
   }
@@ -749,7 +755,7 @@ function checkCollision(projectile, targetMesh) {
 function updateProjectiles(dt) {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i];
-    if (!p.alive) { scene.remove(p.mesh); projectiles.splice(i, 1); continue; }
+    if (!p.alive) { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); projectiles.splice(i, 1); continue; }
 
     const prevPos = p.mesh.position.clone();
     if (p.isShell) p.velocity.y -= 0.005;
@@ -765,24 +771,23 @@ function updateProjectiles(dt) {
         createCrater(impactPos);
         createExplosion(impactPos);
       }
-      scene.remove(p.mesh);
+      scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
       projectiles.splice(i, 1);
       continue;
     }
 
     // Reichweite überschritten
     if (p.distanceTravelled > p.maxDistance) {
-      scene.remove(p.mesh);
+      scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
       projectiles.splice(i, 1);
       continue;
     }
 
-    // Feindliche Geschosse treffen Spieler
+    // Feindliche Geschosse treffen Spieler (einfache Distanz statt Box3.setFromObject)
     if (p.isEnemyShot) {
-      const playerBox = new THREE.Box3().setFromObject(tank);
-      if (playerBox.containsPoint(p.mesh.position)) {
+      if (p.mesh.position.distanceTo(tank.position) < 3.5) {
         playerGetHit(p.damage);
-        scene.remove(p.mesh);
+        scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
         projectiles.splice(i, 1);
         continue;
       }
@@ -802,7 +807,7 @@ function updateProjectiles(dt) {
             enemy.hp -= dmg;
             if (enemy.hp <= 0) explodeEnemy(enemy);
           }
-          scene.remove(p.mesh);
+          scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
           projectiles.splice(i, 1);
           hitEnemy = true;
           break;
@@ -813,6 +818,7 @@ function updateProjectiles(dt) {
 
 
     // Häuser
+    let hit = false;
     for (let j = 0; j < houses.length; j++) {
       const h = houses[j];
       if (h.destroyed) continue;
@@ -826,7 +832,7 @@ function updateProjectiles(dt) {
           h.hp--;
           if (h.hp <= 0) destroyHouse(h);
         }
-        scene.remove(p.mesh);
+        scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
         projectiles.splice(i, 1);
         hit = true;
         break;
@@ -851,7 +857,7 @@ function updateProjectiles(dt) {
           t.falling = true;
           t.fallSpeed = 0.8;
           spawnParticles(pp.clone(), 6, 0x5a3a1a, 3, 0.8, 9.8, 0.15);
-          scene.remove(p.mesh);
+          scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
           projectiles.splice(i, 1);
           hitTree = true;
           break;
