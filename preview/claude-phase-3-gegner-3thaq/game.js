@@ -269,7 +269,7 @@ buildHouseRoads();
 // ── Trees ──────────────────────────────────────────────────────────────────
 const trees = [];
 
-for (let i = 0; i < 15; i++) {
+for (let i = 0; i < 30; i++) {
   const group = new THREE.Group();
 
   const trunk = new THREE.Mesh(
@@ -366,7 +366,7 @@ function buildBush(r) {
   return group;
 }
 
-for (let i = 0; i < 25; i++) {
+for (let i = 0; i < 50; i++) {
   const r = randomBetween(0.8, 1.5);
   const group = buildBush(r);
   const pos = randomPositionFarFrom(10, 420);
@@ -707,17 +707,27 @@ function applyHoleDamage(house) {
 
   if (isXFace) {
     const wallSign = localX > 0 ? 1 : -1;
+    // Z-Position des Lochs = Tank-Eintrittsstelle (auf Wandbreite begrenzt)
+    const entryZ = Math.max(
+      house.mesh.position.z - house.bd / 2 + 2.5,
+      Math.min(house.mesh.position.z + house.bd / 2 - 2.5, tank.position.z)
+    );
     holeMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.5, 4.5), holeMat);
     holeMesh.position.set(
       house.mesh.position.x + wallSign * (house.bw / 2 + 0.05),
       1.75,
-      house.mesh.position.z
+      entryZ
     );
   } else {
     const wallSign = localZ > 0 ? 1 : -1;
+    // X-Position des Lochs = Tank-Eintrittsstelle (auf Wandlänge begrenzt)
+    const entryX = Math.max(
+      house.mesh.position.x - house.bw / 2 + 2.5,
+      Math.min(house.mesh.position.x + house.bw / 2 - 2.5, tank.position.x)
+    );
     holeMesh = new THREE.Mesh(new THREE.BoxGeometry(4.5, 3.5, 0.5), holeMat);
     holeMesh.position.set(
-      house.mesh.position.x,
+      entryX,
       1.75,
       house.mesh.position.z + wallSign * (house.bd / 2 + 0.05)
     );
@@ -972,10 +982,11 @@ function updateProjectiles(dt) {
     }
     if (hit) continue;
 
-    // Bäume – Kanone lässt Baum umfallen
+    // Bäume – stehende Bäume fallen um; gefällte/fallende Bäume = kein Hindernis
+    let hitTree = false;
     if (p.isShell) {
       for (const t of trees) {
-        if (t.falling || t.fallen) continue;
+        if (t.falling || t.fallen) continue;   // gefällt → Schuss fliegt durch
         const tp = t.group.position;
         const pp = p.mesh.position;
         const dx = pp.x - tp.x;
@@ -990,10 +1001,12 @@ function updateProjectiles(dt) {
           spawnParticles(pp.clone(), 6, 0x5a3a1a, 3, 0.8, 9.8, 0.15);
           scene.remove(p.mesh);
           projectiles.splice(i, 1);
+          hitTree = true;
           break;
         }
       }
     }
+    if (hitTree) continue;
 
     // Büsche – Projektile platten Büsche platt (Projektil fliegt durch)
     {
@@ -1321,7 +1334,7 @@ function buildEnemyTank(bodyColor) {
     eCannon.position.set(0, 0, -2.5);
     turretGroup.add(eCannon);
 
-    return { group, turretGroup };
+    return { group, turretGroup, cannon: eCannon };
 }
 
 function randomEnemyPosition(existingPositions) {
@@ -1376,13 +1389,14 @@ function createEnemies(configs) {
         const pos = randomEnemyPosition(spawnedPositions);
         spawnedPositions.push(pos);
 
-        const { group, turretGroup } = buildEnemyTank(cfg.color);
+        const { group, turretGroup, cannon: eCannon } = buildEnemyTank(cfg.color);
         group.position.set(pos.x, 0, pos.z);
         scene.add(group);
 
         const enemy = {
             mesh: group,
             turret: turretGroup,
+            cannon: eCannon,
             hp: cfg.hp,
             maxHp: cfg.hp,
             damage: cfg.damage,
@@ -1482,18 +1496,20 @@ function checkWinCondition() {
 }
 
 function fireEnemyShell(enemy) {
-    const playerPos = new THREE.Vector3();
-    tank.getWorldPosition(playerPos);
+    // matrixWorld aktualisieren, damit Kanonenrichtung stimmt
+    enemy.mesh.updateMatrixWorld(true);
 
-    const enemyPos = enemy.mesh.position.clone();
-    const dir = new THREE.Vector3().subVectors(playerPos, enemyPos).normalize();
+    const dir = new THREE.Vector3(0, -1, 0);
+    dir.transformDirection(enemy.cannon.matrixWorld).normalize();
 
+    // Ungenauigkeit
     dir.x += (Math.random() - 0.5) * enemy.accuracy;
     dir.z += (Math.random() - 0.5) * enemy.accuracy;
     dir.normalize();
-    dir.y = 0.0;
 
-    const muzzlePos = enemyPos.clone().add(new THREE.Vector3(0, 2, 0)).addScaledVector(dir, 3);
+    const muzzlePos = new THREE.Vector3();
+    enemy.cannon.getWorldPosition(muzzlePos);
+    muzzlePos.addScaledVector(dir, 2);
 
     const geo = new THREE.SphereGeometry(0.2, 6, 6);
     const mat = new THREE.MeshLambertMaterial({ color: '#ff4400' });
@@ -1525,48 +1541,81 @@ function updateEnemyAI(enemy, dt) {
     const toPlayer = new THREE.Vector3().subVectors(playerPos, enemyPos);
     const dist = toPlayer.length();
 
+    // Hilfsfunktion: schrittweise Rotation in Richtung targetAngle
+    function turnToward(currentAngle, targetAngle, maxStep) {
+        let diff = targetAngle - currentAngle;
+        while (diff >  Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        return currentAngle + Math.sign(diff) * Math.min(Math.abs(diff), maxStep);
+    }
+
     if (enemy.state === 'suchen') {
         if (dist < 120) {
             enemy.state = 'angreifen';
         } else {
-            const dir = toPlayer.normalize();
-            enemy.mesh.position.x += dir.x * enemy.speed;
-            enemy.mesh.position.z += dir.z * enemy.speed;
+            // Drehen zum Spieler, dann vorwärts fahren
+            const dir = toPlayer.clone().normalize();
+            const targetAngle = Math.atan2(dir.x, dir.z);
+            enemy.mesh.rotation.y = turnToward(enemy.mesh.rotation.y, targetAngle, 0.06);
+            const angleDiff = Math.abs(targetAngle - enemy.mesh.rotation.y);
+            if (angleDiff < Math.PI * 0.5) {
+                enemy.mesh.translateZ(-enemy.speed * 2);
+            }
             enemy.mesh.position.y = 0;
-            enemy.mesh.rotation.y = Math.atan2(dir.x, dir.z);
         }
     } else if (enemy.state === 'angreifen') {
         if (dist > 150) {
             enemy.state = 'suchen';
         } else {
-            // Zufällige Seitenbewegung
+            // Manöver-Richtung periodisch wechseln (Umkreisen)
             enemy.strafeCooldown -= dt;
             if (enemy.strafeCooldown <= 0) {
-                enemy.strafeDir = (Math.random() < 0.5) ? 1 : -1;
-                if (Math.random() < 0.3) enemy.strafeDir = 0;
-                enemy.strafeCooldown = 2.5 + Math.random() * 1.0;
+                enemy.strafeDir = Math.random() < 0.5 ? 1 : -1;
+                enemy.strafeCooldown = 3.0 + Math.random() * 2.0;
             }
 
-            if (enemy.strafeDir !== 0) {
-                const rightVec = new THREE.Vector3(
-                    toPlayer.normalize().z,
-                    0,
-                    -toPlayer.normalize().x
-                );
-                enemy.mesh.position.x += rightVec.x * enemy.speed * enemy.strafeDir;
-                enemy.mesh.position.z += rightVec.z * enemy.speed * enemy.strafeDir;
-                enemy.mesh.position.y = 0;
+            // Bewegungsziel: Spieler-Position + seitlicher Versatz (Umkreisen)
+            const IDEAL_DIST = 70;
+            const toPN = toPlayer.clone().normalize();
+            // Senkrecht zur Spielerrichtung für Umkreis-Offset
+            const perpX = -toPN.z * enemy.strafeDir;
+            const perpZ =  toPN.x * enemy.strafeDir;
+
+            let moveTargetX, moveTargetZ;
+            if (dist > IDEAL_DIST + 20) {
+                // Zu weit → auf Spieler zu, mit seitlichem Versatz
+                moveTargetX = playerPos.x + perpX * 15;
+                moveTargetZ = playerPos.z + perpZ * 15;
+            } else if (dist < IDEAL_DIST - 20) {
+                // Zu nah → zurückfahren
+                moveTargetX = enemyPos.x - toPN.x * 25;
+                moveTargetZ = enemyPos.z - toPN.z * 25;
+            } else {
+                // Ideale Distanz → umkreisen
+                moveTargetX = enemyPos.x + perpX * 30;
+                moveTargetZ = enemyPos.z + perpZ * 30;
             }
 
-            // Turm Richtung Spieler drehen
+            // Körper zum Bewegungsziel drehen, dann vorwärts fahren
+            const moveDx = moveTargetX - enemyPos.x;
+            const moveDz = moveTargetZ - enemyPos.z;
+            if (moveDx * moveDx + moveDz * moveDz > 1) {
+                const bodyTarget = Math.atan2(moveDx, moveDz);
+                enemy.mesh.rotation.y = turnToward(enemy.mesh.rotation.y, bodyTarget, 0.06);
+                const bodyDiff = Math.abs(bodyTarget - enemy.mesh.rotation.y);
+                if (bodyDiff < Math.PI * 0.7) {
+                    enemy.mesh.translateZ(-enemy.speed * 2);
+                }
+            }
+            enemy.mesh.position.y = 0;
+
+            // Turm unabhängig auf Spieler richten
             const turretWorldPos = new THREE.Vector3();
             enemy.turret.getWorldPosition(turretWorldPos);
             const toPlayerFromTurret = new THREE.Vector3()
-                .subVectors(playerPos, turretWorldPos)
-                .normalize();
-            const targetAngle = Math.atan2(toPlayerFromTurret.x, toPlayerFromTurret.z);
-            const worldAngle = enemy.mesh.rotation.y;
-            enemy.turret.rotation.y = targetAngle - worldAngle;
+                .subVectors(playerPos, turretWorldPos).normalize();
+            const turretTarget = Math.atan2(toPlayerFromTurret.x, toPlayerFromTurret.z);
+            enemy.turret.rotation.y = turretTarget - enemy.mesh.rotation.y;
 
             // Schuss
             enemy.shootTimer -= dt;
@@ -1676,8 +1725,11 @@ function drawMinimap() {
 }
 
 // ── Movement constants ─────────────────────────────────────────────────────
-const speed     = 0.15;
-const turnSpeed = 0.03;
+const TANK_MAX_SPEED = 0.30;   // 2× bisherige Höchstgeschwindigkeit
+const TANK_ACCEL     = 0.010;  // Beschleunigung pro Frame
+const TANK_DECEL     = 0.015;  // Verzögerung pro Frame
+const turnSpeed      = 0.03;
+let   tankCurrentSpeed = 0;
 
 // ── Animation Loop ─────────────────────────────────────────────────────────
 let lastTime = performance.now();
@@ -1741,13 +1793,19 @@ function animate() {
     }
   }
 
-  // 2. Panzer
-  tank.translateZ(-speed * moveY);
+  // 2. Panzer (graduelle Beschleunigung)
+  const targetSpeed = moveY * TANK_MAX_SPEED;
+  if (tankCurrentSpeed < targetSpeed) {
+    tankCurrentSpeed = Math.min(tankCurrentSpeed + TANK_ACCEL, targetSpeed);
+  } else if (tankCurrentSpeed > targetSpeed) {
+    tankCurrentSpeed = Math.max(tankCurrentSpeed - TANK_DECEL, targetSpeed);
+  }
+  tank.translateZ(-tankCurrentSpeed);
   tank.rotateY(turnSpeed * rotY);
   tank.position.y = 0;
 
-  // 3. Turm
-  turret.rotateY(turnSpeed * turretY);
+  // 3. Turm (im Zoom-Modus verlangsamt)
+  turret.rotateY(turnSpeed * turretY * (scopeActive ? 0.15 : 1.0));
 
   // 4. Projektile
   updateProjectiles(dt);
