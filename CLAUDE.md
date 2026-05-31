@@ -84,8 +84,8 @@ node --test tests/unit/*.test.js
 
 ## Entwicklungs-Workflow
 
-### 1. Spezifikation hochgeladen?
-→ Datei unter `spec/<phase>-spezifikation.md` ablegen.
+### 1. Spezifikation vorhanden?
+→ Datei unter `spec/<phase>-spezifikation.md` ablegen bzw. prüfen.
 
 ### 2. Vor jeder Implementierung: Tests schreiben
 - **Nicht-triviale Logik** (Koordinaten-Normierung, Kollision, Schadens-Berechnung etc.) → Unit-Test in `tests/unit/`
@@ -103,7 +103,17 @@ npm test   # alle Tests müssen grün sein
 ```
 Nie pushen wenn Tests rot sind. Bug zuerst fixen.
 
-### 5. Nach Abschluss der Arbeit
+### 5. Spezifikation nachführen (PFLICHT)
+Nach **jeder** inhaltlichen Änderung (neues Feature, Bugfix mit Verhaltensänderung,
+Konfigurationsänderung) die betroffene Spec-Datei aktualisieren:
+- Neue Features → als Zeile in der Feature-Tabelle ergänzen
+- Geänderte Werte (Geschwindigkeit, Counts, KI-Parameter) → Tabellen anpassen
+- Neue `window.__test*`-Hooks → in der Hooks-Tabelle ergänzen
+- Neue Bekannte Einschränkungen / Offene Punkte → am Ende notieren
+
+Gilt auch für As-Built-Dokumente wenn Spezifikation nachträglich erstellt wird.
+
+### 6. Nach Abschluss der Arbeit
 Immer die GitHub Pages Links **als klickbare Markdown-Links** ausgeben:
 - **Preview** (aktueller Branch): `[Preview öffnen](https://stesieber.github.io/Tankbuster/preview/<branch-slug>/)`
 - **Production** (nach Merge auf main): [Production öffnen](https://stesieber.github.io/Tankbuster/)
