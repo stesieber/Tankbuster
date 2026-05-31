@@ -444,114 +444,6 @@ turret.add(cannon);
 tank.position.set(0, 0, 0);
 scene.add(tank);
 
-// ── Dummy-Ziele ─────────────────────────────────────────────────────────────
-const dummyMat = new THREE.MeshLambertMaterial({ color: '#8b0000' });
-
-const dummyTargetDefs = [
-  { position: new THREE.Vector3(50, 0, 50),  hp: 100 },
-  { position: new THREE.Vector3(-60, 0, 80), hp: 100 },
-  { position: new THREE.Vector3(30, 0, -70), hp: 100 },
-];
-
-function buildDummyTank(pos) {
-  const group = new THREE.Group();
-
-  const dBody = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 6), dummyMat.clone());
-  dBody.position.y = 1.0;
-  dBody.castShadow = true;
-  group.add(dBody);
-
-  [-2.3, 2.3].forEach(xOffset => {
-    const tr = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 6.2), new THREE.MeshLambertMaterial({ color: '#222' }));
-    tr.position.set(xOffset, 0.85, 0);
-    group.add(tr);
-  });
-
-  const dTurret = new THREE.Group();
-  dTurret.position.set(0, 1.3, 0);
-  dBody.add(dTurret);
-
-  const dTurretBox = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.2, 2.5), dummyMat.clone());
-  dTurret.add(dTurretBox);
-
-  const dCannon = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.15, 0.15, 4, 8),
-    new THREE.MeshLambertMaterial({ color: '#550000' })
-  );
-  dCannon.rotation.x = Math.PI / 2;
-  dCannon.position.set(0, 0, -2.5);
-  dTurret.add(dCannon);
-
-  group.position.copy(pos);
-  scene.add(group);
-  return group;
-}
-
-const dummyTargets = dummyTargetDefs.map(def => ({
-  mesh: buildDummyTank(def.position),
-  hp: def.hp,
-  maxHp: def.hp,
-  destroyed: false,
-  position: def.position.clone(),
-}));
-
-// ── Target HP Bars (DOM) ───────────────────────────────────────────────────
-const targetHud = document.getElementById('target-hud');
-
-dummyTargets.forEach((t, i) => {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'target-hp-wrapper';
-  wrapper.id = `target-hp-${i}`;
-
-  const bg = document.createElement('div');
-  bg.className = 'target-hp-bar-bg';
-
-  const bar = document.createElement('div');
-  bar.className = 'target-hp-bar';
-  bar.id = `target-bar-${i}`;
-
-  const label = document.createElement('div');
-  label.className = 'target-hp-label';
-  label.id = `target-label-${i}`;
-  label.textContent = `${t.hp}/${t.maxHp}`;
-
-  bg.appendChild(bar);
-  wrapper.appendChild(bg);
-  wrapper.appendChild(label);
-  targetHud.appendChild(wrapper);
-});
-
-function updateTargetHpBar(i) {
-  const t = dummyTargets[i];
-  const bar = document.getElementById(`target-bar-${i}`);
-  const label = document.getElementById(`target-label-${i}`);
-  if (!bar || !label) return;
-  const pct = Math.max(0, t.hp / t.maxHp * 100);
-  bar.style.width = pct + '%';
-  bar.style.background = pct > 50 ? '#22cc22' : pct > 25 ? '#ccaa00' : '#cc2222';
-  label.textContent = `${Math.max(0, t.hp)}/${t.maxHp}`;
-}
-
-function updateTargetHpPositions() {
-  dummyTargets.forEach((t, i) => {
-    const wrapper = document.getElementById(`target-hp-${i}`);
-    if (!wrapper || t.destroyed) { if (wrapper) wrapper.style.display = 'none'; return; }
-
-    const worldPos = new THREE.Vector3();
-    t.mesh.getWorldPosition(worldPos);
-    worldPos.y += 4;
-
-    const projected = worldPos.clone().project(camera);
-    if (projected.z > 1) { wrapper.style.display = 'none'; return; }
-
-    const sx = (projected.x * 0.5 + 0.5) * window.innerWidth;
-    const sy = (-projected.y * 0.5 + 0.5) * window.innerHeight;
-
-    wrapper.style.display = 'flex';
-    wrapper.style.left = sx + 'px';
-    wrapper.style.top = sy + 'px';
-  });
-}
 
 // ── Krater ─────────────────────────────────────────────────────────────────
 const craters = [];
@@ -761,23 +653,6 @@ function checkTankHouseCollisions() {
   }
 }
 
-// ── Dummy-Zerstörung ───────────────────────────────────────────────────────
-function destroyDummy(i) {
-  const t = dummyTargets[i];
-  t.destroyed = true;
-
-  // Farbe zu schwarz, leicht schief
-  t.mesh.traverse(child => {
-    if (child.isMesh) {
-      child.material = new THREE.MeshLambertMaterial({ color: '#111' });
-    }
-  });
-  t.mesh.rotation.z += 0.3;
-
-  createExplosion(t.position.clone().add(new THREE.Vector3(0, 2, 0)));
-  spawnSmoke(t.position.clone().add(new THREE.Vector3(0, 3, 0)), 10, 3.0);
-}
-
 // ── Trefferberechnung ──────────────────────────────────────────────────────
 const armorFactor = { front: 1.0, side: 1.5, rear: 2.0, top: 3.0 };
 
@@ -936,30 +811,6 @@ function updateProjectiles(dt) {
       if (hitEnemy) continue;
     }
 
-    // Dummy-Ziele
-    let hit = false;
-    for (let j = 0; j < dummyTargets.length; j++) {
-      const t = dummyTargets[j];
-      if (t.destroyed) continue;
-      if (checkCollision(p, t.mesh)) {
-        const normal = new THREE.Vector3(0, 1, 0);
-        const dmg = calculateDamage(p.velocity, normal, p.damage);
-        if (dmg === 0) {
-          createRicochet(p.mesh.position.clone());
-        } else {
-          const side = getHitSide(p.velocity, t.mesh);
-          const finalDmg = Math.round(dmg * armorFactor[side]);
-          t.hp -= finalDmg;
-          updateTargetHpBar(j);
-          if (t.hp <= 0) destroyDummy(j);
-        }
-        scene.remove(p.mesh);
-        projectiles.splice(i, 1);
-        hit = true;
-        break;
-      }
-    }
-    if (hit) continue;
 
     // Häuser
     for (let j = 0; j < houses.length; j++) {
@@ -1825,8 +1676,6 @@ function animate() {
   updateFallingTrees(dt);
   updateFlatteningBushes(dt);
 
-  // 6. HP-Balken Positionen (Dummy-Ziele)
-  updateTargetHpPositions();
 
   // 6b. Gegner-KI
   for (const enemy of enemies) {

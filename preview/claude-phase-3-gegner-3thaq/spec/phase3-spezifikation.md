@@ -144,6 +144,6 @@ window.IS_PREVIEW   = true;
 
 - Gegner weichen Häusern, Bäumen und dem Fluss nicht aus (keine Wegfindung)
 - Spieler kann durch den Fluss fahren (kein Wasser-Physics)
-- Dummy-Ziele (rot, 3 Stück) noch vorhanden – Überrest aus Phase 2
+- ~~Dummy-Ziele (rot, 3 Stück)~~ entfernt in Phase 3 Bugfix
 - Kein Respawn-Mechanismus für Gegner
 - Keine Munitions-Begrenzung
