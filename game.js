@@ -884,7 +884,7 @@ function updateProjectiles(dt) {
     if (!p.alive) { scene.remove(p.mesh); if (p.mesh.geometry) { p.mesh.geometry.dispose(); p.mesh.material.dispose(); } projectiles.splice(i, 1); continue; }
 
     const prevPos = p.mesh.position.clone();
-    if (p.isShell) p.velocity.y -= 0.005;
+    if (p.isShell && !p.isRocket) p.velocity.y -= 0.005;
     const move = p.velocity.clone().multiplyScalar(dt * 60);
     p.mesh.position.add(move);
     p.distanceTravelled += move.length();
