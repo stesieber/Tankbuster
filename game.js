@@ -483,6 +483,11 @@ const rocketRing = new THREE.Mesh(
 rocketRing.position.set(-1.6, 0.2, -2.95);
 turret.add(rocketRing);
 
+// Unsichtbarer Mündungspunkt für Raketen-Abschuss
+const rocketMuzzle = new THREE.Object3D();
+rocketMuzzle.position.set(-1.6, 0.2, -3.1);
+turret.add(rocketMuzzle);
+
 tank.position.set(0, 0, 0);
 scene.add(tank);
 
@@ -883,6 +888,12 @@ function updateProjectiles(dt) {
     const move = p.velocity.clone().multiplyScalar(dt * 60);
     p.mesh.position.add(move);
     p.distanceTravelled += move.length();
+
+    // Rauchspur hinter der Rakete
+    if (p.isRocket) {
+      const exhaustPos = prevPos.clone().addScaledVector(p.velocity.clone().normalize(), -0.5);
+      spawnParticles(exhaustPos, 1, 0xaaaaaa, 0.4, 1.0, 0.5, 0.22);
+    }
 
     // Boden
     if (p.mesh.position.y <= 0) {
@@ -1296,12 +1307,13 @@ function createRocketExplosion(position, blastRadius) {
 }
 
 function fireRocket() {
+  // Richtung = Turm-Zielrichtung (identisch mit Kanone)
   const dir = new THREE.Vector3(0, -1, 0);
   dir.transformDirection(cannon.matrixWorld).normalize();
 
+  // Startposition = Mündung des Raketenwerfer-Rohrs
   const muzzlePos = new THREE.Vector3();
-  cannon.getWorldPosition(muzzlePos);
-  muzzlePos.addScaledVector(dir, 2);
+  rocketMuzzle.getWorldPosition(muzzlePos);
 
   // Raketen-Mesh
   const rktGroup = new THREE.Group();
@@ -1326,10 +1338,10 @@ function fireRocket() {
 
   projectiles.push({
     mesh: rktGroup,
-    velocity: dir.clone().multiplyScalar(1.8),
+    velocity: dir.clone().multiplyScalar(2.5),
     alive: true,
     distanceTravelled: 0,
-    maxDistance: 900,
+    maxDistance: 4500,
     damage: 70,
     isShell: true,
     isRocket: true,
@@ -1485,6 +1497,24 @@ function buildEnemyTank(bodyColor) {
     eCannon.rotation.x = Math.PI / 2;
     eCannon.position.set(0, 0, -2.5);
     turretGroup.add(eCannon);
+
+    // Tarnmuster auf Gegner-Panzer
+    function ePatch(parent, x, y, z, w, h, d, col) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: col }));
+      m.position.set(x, y, z);
+      parent.add(m);
+    }
+    // Körper-Oberseite
+    ePatch(corpus, -1.0, 0.77,  0.5, 1.9, 0.06, 2.4, '#2d3a1a');
+    ePatch(corpus,  0.8, 0.77, -1.0, 2.0, 0.06, 1.5, '#4a3010');
+    ePatch(corpus, -0.2, 0.77,  1.5, 1.3, 0.06, 1.7, '#1a2a0e');
+    // Körper-Seiten
+    ePatch(corpus,  2.06, 0.0, -0.6, 0.06, 1.0, 2.6, '#2d3a1a');
+    ePatch(corpus, -2.06, 0.1,  0.6, 0.06, 1.0, 2.1, '#4a3010');
+    // Turm
+    ePatch(turretBox,  0.4, 0.62, -0.3, 1.0, 0.06, 0.9, '#4a3010');
+    ePatch(turretBox, -0.5, 0.62,  0.3, 0.8, 0.06, 1.1, '#2d3a1a');
+    ePatch(turretBox,  0.1, 0.62,  0.7, 1.2, 0.06, 0.7, '#1a2a0e');
 
     return { group, turretGroup, cannon: eCannon };
 }
