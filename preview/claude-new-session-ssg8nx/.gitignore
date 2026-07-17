@@ -1,0 +1,6 @@
+.DS_Store
+node_modules/
+*.log
+tests/screenshot.png
+test-results/
+.claude/settings.local.json
