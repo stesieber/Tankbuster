@@ -1,4 +1,8 @@
 const { defineConfig } = require('@playwright/test');
+const fs = require('fs');
+
+const LOCAL_CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const launchOptions = fs.existsSync(LOCAL_CHROME) ? { executablePath: LOCAL_CHROME } : {};
 
 module.exports = defineConfig({
   testDir: './tests',
@@ -8,10 +12,7 @@ module.exports = defineConfig({
     headless: true,
     viewport: { width: 1280, height: 720 },
     ignoreHTTPSErrors: true,
-    // Vorinstalliertes Chromium mit Proxy-CA-Trust verwenden
-    launchOptions: {
-      executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-    },
+    launchOptions,
   },
   webServer: {
     command: 'python3 -m http.server 7777',
