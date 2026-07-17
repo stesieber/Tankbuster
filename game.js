@@ -441,6 +441,48 @@ cannon.position.set(0, 0, -2.5); // -Z = Vorderseite (Tank fährt in -Z)
 cannon.castShadow = true;
 turret.add(cannon);
 
+// ── Tarnmuster ────────────────────────────────────────────────────────────
+function addCamoPatch(parent, x, y, z, w, h, d, color) {
+  const m = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshLambertMaterial({ color })
+  );
+  m.position.set(x, y, z);
+  parent.add(m);
+}
+
+// Flecken auf der Körper-Oberseite (y=0.77 = leicht über Fläche y=0.75)
+addCamoPatch(body, -1.1, 0.77, 0.4,  1.9, 0.06, 2.6, '#2d4a1e');
+addCamoPatch(body,  0.8, 0.77, -1.2, 2.2, 0.06, 1.6, '#5a3a1a');
+addCamoPatch(body, -0.2, 0.77,  1.6, 1.4, 0.06, 1.8, '#1a2e0e');
+addCamoPatch(body,  1.3, 0.77,  1.1, 1.1, 0.06, 2.2, '#6b4c22');
+// Flecken seitlich
+addCamoPatch(body,  2.06, 0.1, -0.8, 0.06, 1.0, 2.4, '#2d4a1e');
+addCamoPatch(body,  2.06, 0.0,  1.4, 0.06, 1.1, 1.6, '#5a3a1a');
+addCamoPatch(body, -2.06, 0.2,  0.3, 0.06, 1.0, 2.2, '#1a2e0e');
+addCamoPatch(body, -2.06, -0.1, -1.5, 0.06, 0.9, 1.8, '#6b4c22');
+// Flecken auf Turm-Oberseite (y=0.62)
+addCamoPatch(turretBox,  0.5, 0.62, -0.4, 1.1, 0.06, 1.0, '#5a3a1a');
+addCamoPatch(turretBox, -0.6, 0.62,  0.3, 0.9, 0.06, 1.2, '#2d4a1e');
+addCamoPatch(turretBox,  0.2, 0.62,  0.7, 1.3, 0.06, 0.8, '#1a2e0e');
+
+// ── Raketenwerfer-Rohr (links am Turm) ──────────────────────────────────────
+const rocketLauncherMat = new THREE.MeshLambertMaterial({ color: '#333' });
+const rocketTube = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.22, 0.22, 2.8, 8),
+  rocketLauncherMat
+);
+rocketTube.rotation.x = Math.PI / 2;
+rocketTube.position.set(-1.6, 0.2, -1.6);
+turret.add(rocketTube);
+// Abschlussring vorne
+const rocketRing = new THREE.Mesh(
+  new THREE.TorusGeometry(0.26, 0.05, 6, 12),
+  rocketLauncherMat
+);
+rocketRing.position.set(-1.6, 0.2, -2.95);
+turret.add(rocketRing);
+
 tank.position.set(0, 0, 0);
 scene.add(tank);
 
@@ -834,7 +876,7 @@ function checkCollision(projectile, targetMesh) {
 function updateProjectiles(dt) {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i];
-    if (!p.alive) { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); projectiles.splice(i, 1); continue; }
+    if (!p.alive) { scene.remove(p.mesh); if (p.mesh.geometry) { p.mesh.geometry.dispose(); p.mesh.material.dispose(); } projectiles.splice(i, 1); continue; }
 
     const prevPos = p.mesh.position.clone();
     if (p.isShell) p.velocity.y -= 0.005;
@@ -844,20 +886,22 @@ function updateProjectiles(dt) {
 
     // Boden
     if (p.mesh.position.y <= 0) {
-      if (p.isShell) {
+      if (p.isRocket) {
+        const impactPos = p.mesh.position.clone().setY(0.1);
+        createRocketExplosion(impactPos, p.blastRadius);
+      } else if (p.isShell) {
         const impactPos = p.mesh.position.clone();
         impactPos.y = 0.1;
         createCrater(impactPos);
         createExplosion(impactPos);
       }
-      scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
-      projectiles.splice(i, 1);
+      scene.remove(p.mesh); projectiles.splice(i, 1);
       continue;
     }
 
     // Reichweite überschritten
     if (p.distanceTravelled > p.maxDistance) {
-      scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
+      scene.remove(p.mesh); if (p.mesh.geometry) { p.mesh.geometry.dispose(); p.mesh.material.dispose(); }
       projectiles.splice(i, 1);
       continue;
     }
@@ -866,7 +910,7 @@ function updateProjectiles(dt) {
     if (p.isEnemyShot) {
       if (p.mesh.position.distanceTo(tank.position) < 3.5) {
         playerGetHit(p.damage);
-        scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
+        scene.remove(p.mesh); if (p.mesh.geometry) { p.mesh.geometry.dispose(); p.mesh.material.dispose(); }
         projectiles.splice(i, 1);
         continue;
       }
@@ -878,16 +922,19 @@ function updateProjectiles(dt) {
       for (const enemy of enemies) {
         if (!enemy.alive) continue;
         if (checkCollision(p, enemy.mesh)) {
-          const normal = new THREE.Vector3(0, 1, 0);
-          const dmg = calculateDamage(p.velocity, normal, p.damage);
-          if (dmg === 0) {
-            createRicochet(p.mesh.position.clone());
+          if (p.isRocket) {
+            createRocketExplosion(p.mesh.position.clone(), p.blastRadius);
           } else {
-            enemy.hp -= dmg;
-            if (enemy.hp <= 0) explodeEnemy(enemy);
+            const normal = new THREE.Vector3(0, 1, 0);
+            const dmg = calculateDamage(p.velocity, normal, p.damage);
+            if (dmg === 0) {
+              createRicochet(p.mesh.position.clone());
+            } else {
+              enemy.hp -= dmg;
+              if (enemy.hp <= 0) explodeEnemy(enemy);
+            }
           }
-          scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
-          projectiles.splice(i, 1);
+          scene.remove(p.mesh); projectiles.splice(i, 1);
           hitEnemy = true;
           break;
         }
@@ -902,17 +949,20 @@ function updateProjectiles(dt) {
       const h = houses[j];
       if (h.destroyed) continue;
       if (checkCollision(p, h.mesh)) {
-        const normal = new THREE.Vector3(0, 1, 0);
-        const dmg = calculateDamage(p.velocity, normal, p.damage);
-        if (dmg === 0) {
-          createRicochet(p.mesh.position.clone());
+        if (p.isRocket) {
+          createRocketExplosion(p.mesh.position.clone(), p.blastRadius);
         } else {
-          createExplosion(p.mesh.position.clone());
-          h.hp -= 40;
-          if (h.hp <= 0) destroyHouse(h);
+          const normal = new THREE.Vector3(0, 1, 0);
+          const dmg = calculateDamage(p.velocity, normal, p.damage);
+          if (dmg === 0) {
+            createRicochet(p.mesh.position.clone());
+          } else {
+            createExplosion(p.mesh.position.clone());
+            h.hp -= 40;
+            if (h.hp <= 0) destroyHouse(h);
+          }
         }
-        scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
-        projectiles.splice(i, 1);
+        scene.remove(p.mesh); projectiles.splice(i, 1);
         hit = true;
         break;
       }
@@ -936,7 +986,7 @@ function updateProjectiles(dt) {
           t.falling = true;
           t.fallSpeed = 0.8;
           spawnParticles(pp.clone(), 6, 0x5a3a1a, 3, 0.8, 9.8, 0.15);
-          scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
+          scene.remove(p.mesh); if (p.mesh.geometry) { p.mesh.geometry.dispose(); p.mesh.material.dispose(); }
           projectiles.splice(i, 1);
           hitTree = true;
           break;
@@ -1058,6 +1108,7 @@ window.addEventListener('keydown', e => {
   keys[e.key.toLowerCase()] = true;
   if (e.key.toLowerCase() === ' ' || e.key === ' ') tryFireCannon();
   if (e.key.toLowerCase() === 'z') toggleScope();
+  if (e.key.toLowerCase() === 'r') tryFireRocket();
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
@@ -1182,6 +1233,137 @@ function startCannonCooldown() {
 
 shootBtn.addEventListener('click', () => { resumeAudio(); tryFireCannon(); });
 shootBtn.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(); tryFireCannon(); }, { passive: false });
+
+// ── Raketenwerfer ──────────────────────────────────────────────────────────
+const ROCKET_COOLDOWN = 8000;
+let rocketLastFired = -ROCKET_COOLDOWN;
+
+const rocketBtn = document.getElementById('btn-rocket');
+
+function createRocketExplosion(position, blastRadius) {
+  const dist = position.distanceTo(tank.position);
+
+  const flash = new THREE.PointLight(0xff6600, 60, blastRadius * 6);
+  flash.position.copy(position);
+  scene.add(flash);
+  setTimeout(() => scene.remove(flash), 220);
+
+  createFireball(position.clone().add(new THREE.Vector3(0, 1.5, 0)), blastRadius * 1.3);
+
+  const colors = [0xff6600, 0xffdd00, 0xff3300, 0x111111];
+  for (let i = 0; i < 30; i++) {
+    const c = colors[Math.floor(Math.random() * colors.length)];
+    spawnParticles(position.clone().add(new THREE.Vector3(0, 1, 0)), 1, c, 14, 2.0, 9.8, 0.6);
+  }
+  spawnParticles(position.clone().add(new THREE.Vector3(0, 1, 0)), 10, 0x999999, 16, 1.5, 12, 0.2);
+  spawnSmoke(position.clone().add(new THREE.Vector3(0, 3, 0)), 22, 6.0);
+  createCrater(position);
+
+  // Splashschaden Gegner
+  for (const enemy of enemies) {
+    if (!enemy.alive) continue;
+    const d = enemy.mesh.position.distanceTo(position);
+    if (d <= blastRadius) {
+      const dmg = Math.round(70 * (1 - d / blastRadius));
+      if (dmg > 0) {
+        enemy.hp -= dmg;
+        if (enemy.hp <= 0) explodeEnemy(enemy);
+      }
+    }
+  }
+
+  // Spieler-Splash (Eigentor möglich!)
+  if (!playerDead) {
+    const pd = tank.position.distanceTo(position);
+    if (pd <= blastRadius) {
+      const dmg = Math.round(45 * (1 - pd / blastRadius));
+      if (dmg > 0) playerGetHit(dmg);
+    }
+  }
+
+  // Häuser-Splash
+  for (const h of houses) {
+    if (h.destroyed) continue;
+    const hd = h.mesh.position.distanceTo(position);
+    if (hd <= blastRadius) {
+      h.hp -= Math.round(80 * (1 - hd / blastRadius));
+      if (h.hp <= 0) destroyHouse(h);
+    }
+  }
+
+  playSound('explosion_large', dist);
+  cameraShake(1.5, 600);
+}
+
+function fireRocket() {
+  const dir = new THREE.Vector3(0, -1, 0);
+  dir.transformDirection(cannon.matrixWorld).normalize();
+
+  const muzzlePos = new THREE.Vector3();
+  cannon.getWorldPosition(muzzlePos);
+  muzzlePos.addScaledVector(dir, 2);
+
+  // Raketen-Mesh
+  const rktGroup = new THREE.Group();
+  const rktBody = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, 1.4, 7),
+    new THREE.MeshLambertMaterial({ color: '#cccccc' })
+  );
+  rktBody.rotation.x = Math.PI / 2;
+  rktGroup.add(rktBody);
+  const rktNose = new THREE.Mesh(
+    new THREE.ConeGeometry(0.18, 0.45, 7),
+    new THREE.MeshLambertMaterial({ color: '#cc3300' })
+  );
+  rktNose.rotation.x = Math.PI / 2;
+  rktNose.position.z = -0.95;
+  rktGroup.add(rktNose);
+  rktGroup.position.copy(muzzlePos);
+  rktGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.clone().negate());
+  scene.add(rktGroup);
+
+  createMuzzleFlash(muzzlePos.clone());
+
+  projectiles.push({
+    mesh: rktGroup,
+    velocity: dir.clone().multiplyScalar(1.8),
+    alive: true,
+    distanceTravelled: 0,
+    maxDistance: 900,
+    damage: 70,
+    isShell: true,
+    isRocket: true,
+    blastRadius: 8,   // Doppelter Panzer-Radius (~4)
+  });
+}
+
+function tryFireRocket() {
+  if (playerDead) return;
+  const now = performance.now();
+  if (now - rocketLastFired < ROCKET_COOLDOWN) return;
+  rocketLastFired = now;
+  fireRocket();
+  startRocketCooldown();
+}
+
+function startRocketCooldown() {
+  rocketBtn.disabled = true;
+  rocketBtn.textContent = '⏳ 8s';
+  let remaining = ROCKET_COOLDOWN;
+  const interval = setInterval(() => {
+    remaining -= 100;
+    if (remaining <= 0) {
+      clearInterval(interval);
+      rocketBtn.disabled = false;
+      rocketBtn.innerHTML = '&#x1F680; Rakete';
+    } else {
+      rocketBtn.textContent = `⏳ ${(remaining / 1000).toFixed(1)}s`;
+    }
+  }, 100);
+}
+
+rocketBtn.addEventListener('click', () => { resumeAudio(); tryFireRocket(); });
+rocketBtn.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(); tryFireRocket(); }, { passive: false });
 
 // ── MG ─────────────────────────────────────────────────────────────────────
 const MG_COOLDOWN = 150;
@@ -1803,7 +1985,7 @@ function animate() {
   tank.position.y = 0;
 
   // 3. Turm (im Zoom-Modus verlangsamt)
-  turret.rotateY(turnSpeed * turretY * (scopeActive ? 0.15 : 1.0));
+  turret.rotateY(turnSpeed * turretY * (scopeActive ? 0.04 : 1.0));
 
   // 4. Projektile
   updateProjectiles(dt);
