@@ -85,6 +85,22 @@ Basiswerte (Referenz Phase 3/4): `BASE_TANK_MAX_SPEED = 0.30`,
 gelten diese Basiswerte plus 100/100 HP unverändert (Rückwärtskompatibilität
 mit Tests, die ohne Panzerauswahl direkt Werte prüfen).
 
+### Realistischere Panzer-Silhouette
+
+Auf Wunsch nach dem ersten Durchlauf wurde der Panzer-Baukasten (`buildTankMesh`)
+um Detail-Bauteile erweitert, die auch der Gegner-Panzer-Baukasten
+(`buildEnemyTank`) über dieselben Hilfsfunktionen nutzt – statt reiner Box-Optik:
+
+| Bauteil | Funktion | Beschreibung |
+|---|---|---|
+| Laufrollen | `addRoadWheels()` | 6 Laufrollen + Antriebs-/Leitrad je Seite, helle Reifen + dunkle Nabe, lugen unter der Kette hervor |
+| Geneigte Wannenfront | `addGlacisPlate()` | Schräge Frontplatte statt Steilwand |
+| Triebwerksdeck | `addEngineDeckDetail()` | Dunkle Gitter-Andeutung auf dem Heck |
+| Antenne | `addAntenna()` | Dünner Stab am Heck |
+| Kanonenblende (Mantlet) | `addTurretMantlet()` | Gerundeter Übergang Turm→Rohr |
+| Kommandantenkuppel + Luke | `addCommanderCupola()` | Zylinder + flache Luke auf dem Turmdach |
+| Mündungsbremse | `addMuzzleBrake()` | Verdickung an der Rohrspitze; Leopard 2 A8 zusätzlich mit heller Wärmeschutzhülle (`thermalSleeve: true`) |
+
 Panzerung wird als effektive Max-HP abgebildet (kein zusätzlicher
 Rüstungs-Multiplikator auf den Schaden) – Königstiger hält mehr Treffer aus,
 Leopard 2 A8 ist dafür deutlich schneller.
