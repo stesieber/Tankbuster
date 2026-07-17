@@ -8,9 +8,10 @@ module.exports = defineConfig({
     headless: true,
     viewport: { width: 1280, height: 720 },
     ignoreHTTPSErrors: true,
-    proxy: process.env.HTTPS_PROXY
-      ? { server: process.env.HTTPS_PROXY, bypass: 'localhost,127.0.0.1' }
-      : undefined,
+    // Vorinstalliertes Chromium mit Proxy-CA-Trust verwenden
+    launchOptions: {
+      executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+    },
   },
   webServer: {
     command: 'python3 -m http.server 7777',
