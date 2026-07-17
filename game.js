@@ -601,16 +601,27 @@ function addWedgeTurretFront(turretGroup, cannonColor, bodyColor, turretWidth, t
   turretGroup.add(mantlet);
 
   const wedgeMat = new THREE.MeshLambertMaterial({ color: bodyColor });
-  const wedge = new THREE.Mesh(new THREE.BoxGeometry(turretWidth - 0.1, 0.5, 0.75), wedgeMat);
+  const wedge = new THREE.Mesh(new THREE.BoxGeometry(turretWidth - 0.2, 0.5, 0.75), wedgeMat);
   wedge.position.set(0, 0.35, -turretDepth / 2 - 0.05);
   wedge.rotation.x = -0.45; // geneigte Verbundpanzerung-Module
   wedge.castShadow = true;
   turretGroup.add(wedge);
 
+  // Seitliche Schrägkanten: bewusst schmal und nah am Turmkörper positioniert,
+  // damit die gedrehte Ecke innerhalb der Turmbreite bleibt und nicht über die
+  // Wanne hinausragt.
+  const sideHalfWidth = 0.18;
+  const sideDepthHalf = 0.28;
+  const sideAngle = 0.3;
+  const cornerOffset = sideHalfWidth * Math.cos(sideAngle) + sideDepthHalf * Math.sin(sideAngle);
+  const sideCenterX = turretWidth / 2 - cornerOffset - 0.03; // 0.03 Sicherheitsabstand
   [-1, 1].forEach(side => {
-    const sidePanel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.8), wedgeMat);
-    sidePanel.position.set(side * (turretWidth / 2 - 0.05), 0.15, -turretDepth / 2 + 0.25);
-    sidePanel.rotation.y = side * 0.4;
+    const sidePanel = new THREE.Mesh(
+      new THREE.BoxGeometry(sideHalfWidth * 2, 0.5, sideDepthHalf * 2),
+      wedgeMat
+    );
+    sidePanel.position.set(side * sideCenterX, 0.15, -turretDepth / 2 + 0.35);
+    sidePanel.rotation.y = side * sideAngle;
     sidePanel.castShadow = true;
     turretGroup.add(sidePanel);
   });
