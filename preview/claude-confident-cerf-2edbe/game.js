@@ -1341,7 +1341,7 @@ function fireRocket() {
     velocity: dir.clone().multiplyScalar(2.5),
     alive: true,
     distanceTravelled: 0,
-    maxDistance: 4500,
+    maxDistance: 9000,
     damage: 70,
     isShell: true,
     isRocket: true,
