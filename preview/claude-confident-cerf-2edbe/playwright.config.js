@@ -8,6 +8,9 @@ module.exports = defineConfig({
     headless: true,
     viewport: { width: 1280, height: 720 },
     ignoreHTTPSErrors: true,
+    proxy: process.env.HTTPS_PROXY
+      ? { server: process.env.HTTPS_PROXY, bypass: 'localhost,127.0.0.1' }
+      : undefined,
   },
   webServer: {
     command: 'python3 -m http.server 7777',
