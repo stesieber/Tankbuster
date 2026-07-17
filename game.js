@@ -27,12 +27,23 @@ window.addEventListener('resize', () => {
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 
 // ── Lights ─────────────────────────────────────────────────────────────────
-const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+// Himmel/Boden-Aufhellung sorgt für natürlicheres Umgebungslicht als reines Ambient.
+const hemiLight = new THREE.HemisphereLight(0xbfd9ff, 0x3a3a20, 0.55);
+scene.add(hemiLight);
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.3);
 scene.add(ambient);
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-dirLight.position.set(50, 100, 50);
+const dirLight = new THREE.DirectionalLight(0xfff4e0, 1.05); // leicht warmes Sonnenlicht
+dirLight.position.set(60, 120, 40);
 dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.camera.left   = -120;
+dirLight.shadow.camera.right  =  120;
+dirLight.shadow.camera.top    =  120;
+dirLight.shadow.camera.bottom = -120;
+dirLight.shadow.camera.far    = 320;
+dirLight.shadow.bias = -0.0015;
 scene.add(dirLight);
 
 // ── Ground ─────────────────────────────────────────────────────────────────
@@ -405,90 +416,157 @@ function checkTankBushCollisions() {
   }
 }
 
-// ── Tank ───────────────────────────────────────────────────────────────────
-const tankColor = new THREE.MeshLambertMaterial({ color: '#3a5a2a' });
+// ── Tank-Typen (Phase 5: Panzerauswahl) ─────────────────────────────────────
+const TANK_TYPES = {
+  koenigstiger: {
+    key: 'koenigstiger',
+    label: 'Königstiger',
+    icon: '🐯',
+    bodyColor: '#3a5a2a',
+    cannonColor: '#2a4a1a',
+    trackColor: '#222222',
+    camoColors: ['#2d4a1e', '#5a3a1a', '#1a2e0e', '#6b4c22'],
+    bodySize: { w: 4,   h: 1.5,  d: 6 },
+    turretSize: { w: 2.5, h: 1.2, d: 2.5 },
+    speedFactor: 0.8,
+    maxHP: 140,
+    speedLabel: 'Langsam',
+    armorLabel: 'Stark',
+    speedPct: 40,
+    armorPct: 90,
+  },
+  leopard: {
+    key: 'leopard',
+    label: 'Leopard 2 A8',
+    icon: '🐆',
+    bodyColor: '#6e7266',
+    cannonColor: '#4a4e42',
+    trackColor: '#2a2a2a',
+    camoColors: ['#565a4c', '#7a7e6c', '#3e4236', '#8f9380'],
+    bodySize: { w: 3.9, h: 1.25, d: 6.3 },
+    turretSize: { w: 2.3, h: 0.95, d: 2.6 },
+    speedFactor: 1.35,
+    maxHP: 95,
+    speedLabel: 'Schnell',
+    armorLabel: 'Moderat',
+    speedPct: 85,
+    armorPct: 55,
+  },
+};
 
-const tank = new THREE.Group();
+// ── Tarnmuster-Layout (relativ, wird pro Panzer-Typ eingefärbt) ─────────────
+const CAMO_PATCH_SPECS = [
+  { target: 'body',   x: -1.1,  y: 0.77, z: 0.4,   w: 1.9,  h: 0.06, d: 2.6, ci: 0 },
+  { target: 'body',   x:  0.8,  y: 0.77, z: -1.2,  w: 2.2,  h: 0.06, d: 1.6, ci: 1 },
+  { target: 'body',   x: -0.2,  y: 0.77, z: 1.6,   w: 1.4,  h: 0.06, d: 1.8, ci: 2 },
+  { target: 'body',   x:  1.3,  y: 0.77, z: 1.1,   w: 1.1,  h: 0.06, d: 2.2, ci: 3 },
+  { target: 'body',   x:  2.06, y: 0.1,  z: -0.8,  w: 0.06, h: 1.0,  d: 2.4, ci: 0 },
+  { target: 'body',   x:  2.06, y: 0.0,  z: 1.4,   w: 0.06, h: 1.1,  d: 1.6, ci: 1 },
+  { target: 'body',   x: -2.06, y: 0.2,  z: 0.3,   w: 0.06, h: 1.0,  d: 2.2, ci: 2 },
+  { target: 'body',   x: -2.06, y: -0.1, z: -1.5,  w: 0.06, h: 0.9,  d: 1.8, ci: 3 },
+  { target: 'turret', x:  0.5,  y: 0.62, z: -0.4,  w: 1.1,  h: 0.06, d: 1.0, ci: 1 },
+  { target: 'turret', x: -0.6,  y: 0.62, z: 0.3,   w: 0.9,  h: 0.06, d: 1.2, ci: 0 },
+  { target: 'turret', x:  0.2,  y: 0.62, z: 0.7,   w: 1.3,  h: 0.06, d: 0.8, ci: 2 },
+];
 
-const body = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 6), tankColor);
-body.position.y = 1.0;
-body.castShadow = true;
-body.receiveShadow = true;
-tank.add(body);
-
-const trackMat = new THREE.MeshLambertMaterial({ color: '#222222' });
-[-2.3, 2.3].forEach(xOffset => {
-  const track = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 6.2), trackMat);
-  track.position.set(xOffset, 0.85, 0);
-  track.castShadow = true;
-  tank.add(track);
-});
-
-const turret = new THREE.Group();
-turret.position.set(0, 1.3, 0);
-body.add(turret);
-
-const turretBox = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.2, 2.5), tankColor);
-turretBox.castShadow = true;
-turret.add(turretBox);
-
-const cannon = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.15, 0.15, 4, 8),
-  new THREE.MeshLambertMaterial({ color: '#2a4a1a' })
-);
-cannon.rotation.x = Math.PI / 2;
-cannon.position.set(0, 0, -2.5); // -Z = Vorderseite (Tank fährt in -Z)
-cannon.castShadow = true;
-turret.add(cannon);
-
-// ── Tarnmuster ────────────────────────────────────────────────────────────
-function addCamoPatch(parent, x, y, z, w, h, d, color) {
+function addCamoPatch(parent, spec, color) {
   const m = new THREE.Mesh(
-    new THREE.BoxGeometry(w, h, d),
+    new THREE.BoxGeometry(spec.w, spec.h, spec.d),
     new THREE.MeshLambertMaterial({ color })
   );
-  m.position.set(x, y, z);
+  m.position.set(spec.x, spec.y, spec.z);
   parent.add(m);
+  return m;
 }
 
-// Flecken auf der Körper-Oberseite (y=0.77 = leicht über Fläche y=0.75)
-addCamoPatch(body, -1.1, 0.77, 0.4,  1.9, 0.06, 2.6, '#2d4a1e');
-addCamoPatch(body,  0.8, 0.77, -1.2, 2.2, 0.06, 1.6, '#5a3a1a');
-addCamoPatch(body, -0.2, 0.77,  1.6, 1.4, 0.06, 1.8, '#1a2e0e');
-addCamoPatch(body,  1.3, 0.77,  1.1, 1.1, 0.06, 2.2, '#6b4c22');
-// Flecken seitlich
-addCamoPatch(body,  2.06, 0.1, -0.8, 0.06, 1.0, 2.4, '#2d4a1e');
-addCamoPatch(body,  2.06, 0.0,  1.4, 0.06, 1.1, 1.6, '#5a3a1a');
-addCamoPatch(body, -2.06, 0.2,  0.3, 0.06, 1.0, 2.2, '#1a2e0e');
-addCamoPatch(body, -2.06, -0.1, -1.5, 0.06, 0.9, 1.8, '#6b4c22');
-// Flecken auf Turm-Oberseite (y=0.62)
-addCamoPatch(turretBox,  0.5, 0.62, -0.4, 1.1, 0.06, 1.0, '#5a3a1a');
-addCamoPatch(turretBox, -0.6, 0.62,  0.3, 0.9, 0.06, 1.2, '#2d4a1e');
-addCamoPatch(turretBox,  0.2, 0.62,  0.7, 1.3, 0.06, 0.8, '#1a2e0e');
+// ── Panzer-Baukasten (baut Spieler-Panzer UND Auswahl-Vorschauen) ───────────
+function buildTankMesh(cfg) {
+  const tankColorMat = new THREE.MeshLambertMaterial({ color: cfg.bodyColor });
 
-// ── Raketenwerfer-Rohr (links am Turm) ──────────────────────────────────────
-const rocketLauncherMat = new THREE.MeshLambertMaterial({ color: '#333' });
-const rocketTube = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.22, 0.22, 2.8, 8),
-  rocketLauncherMat
-);
-rocketTube.rotation.x = Math.PI / 2;
-rocketTube.position.set(-1.6, 0.2, -1.6);
-turret.add(rocketTube);
-// Abschlussring vorne
-const rocketRing = new THREE.Mesh(
-  new THREE.TorusGeometry(0.26, 0.05, 6, 12),
-  rocketLauncherMat
-);
-rocketRing.position.set(-1.6, 0.2, -2.95);
-turret.add(rocketRing);
+  const tankGroup = new THREE.Group();
 
-// Unsichtbarer Mündungspunkt für Raketen-Abschuss
-const rocketMuzzle = new THREE.Object3D();
-rocketMuzzle.position.set(-1.6, 0.2, -3.1);
-turret.add(rocketMuzzle);
+  const bodyMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(cfg.bodySize.w, cfg.bodySize.h, cfg.bodySize.d),
+    tankColorMat
+  );
+  bodyMesh.position.y = 1.0;
+  bodyMesh.castShadow = true;
+  bodyMesh.receiveShadow = true;
+  tankGroup.add(bodyMesh);
 
-tank.position.set(0, 0, 0);
+  const trackMat = new THREE.MeshLambertMaterial({ color: cfg.trackColor });
+  [-2.3, 2.3].forEach(xOffset => {
+    const track = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, cfg.bodySize.d + 0.2), trackMat);
+    track.position.set(xOffset, 0.85, 0);
+    track.castShadow = true;
+    tankGroup.add(track);
+  });
+
+  const turretGroup = new THREE.Group();
+  turretGroup.position.set(0, 1.3, 0);
+  bodyMesh.add(turretGroup);
+
+  const turretBoxMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(cfg.turretSize.w, cfg.turretSize.h, cfg.turretSize.d),
+    tankColorMat
+  );
+  turretBoxMesh.castShadow = true;
+  turretGroup.add(turretBoxMesh);
+
+  const cannonMat = new THREE.MeshLambertMaterial({ color: cfg.cannonColor });
+  const cannonMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 4, 8), cannonMat);
+  cannonMesh.rotation.x = Math.PI / 2;
+  cannonMesh.position.set(0, 0, -2.5); // -Z = Vorderseite (Tank fährt in -Z)
+  cannonMesh.castShadow = true;
+  turretGroup.add(cannonMesh);
+
+  // Tarnmuster
+  const patches = CAMO_PATCH_SPECS.map(spec => {
+    const parent = spec.target === 'body' ? bodyMesh : turretBoxMesh;
+    const mesh = addCamoPatch(parent, spec, cfg.camoColors[spec.ci]);
+    return { mesh, ci: spec.ci };
+  });
+
+  // ── Raketenwerfer-Rohr (links am Turm) ────────────────────────────────────
+  const rocketLauncherMat = new THREE.MeshLambertMaterial({ color: '#333' });
+  const rocketTubeMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.22, 0.22, 2.8, 8),
+    rocketLauncherMat
+  );
+  rocketTubeMesh.rotation.x = Math.PI / 2;
+  rocketTubeMesh.position.set(-1.6, 0.2, -1.6);
+  turretGroup.add(rocketTubeMesh);
+  // Abschlussring vorne
+  const rocketRingMesh = new THREE.Mesh(
+    new THREE.TorusGeometry(0.26, 0.05, 6, 12),
+    rocketLauncherMat
+  );
+  rocketRingMesh.position.set(-1.6, 0.2, -2.95);
+  turretGroup.add(rocketRingMesh);
+
+  // Unsichtbarer Mündungspunkt für Raketen-Abschuss
+  const rocketMuzzleObj = new THREE.Object3D();
+  rocketMuzzleObj.position.set(-1.6, 0.2, -3.1);
+  turretGroup.add(rocketMuzzleObj);
+
+  tankGroup.position.set(0, 0, 0);
+
+  return {
+    tank: tankGroup,
+    body: bodyMesh,
+    turret: turretGroup,
+    turretBox: turretBoxMesh,
+    cannon: cannonMesh,
+    rocketMuzzle: rocketMuzzleObj,
+    bodyMat: tankColorMat,
+    cannonMat,
+    trackMat,
+    patches,
+  };
+}
+
+const playerTankVisuals = buildTankMesh(TANK_TYPES.koenigstiger);
+const { tank, body, turret, turretBox, cannon, rocketMuzzle } = playerTankVisuals;
 scene.add(tank);
 
 
@@ -1027,7 +1105,7 @@ function updateProjectiles(dt) {
 
 // ── Spieler HP ─────────────────────────────────────────────────────────────
 let playerHP = 100;
-const playerMaxHP = 100;
+let playerMaxHP = 100;
 let playerDead = false;
 
 function updateHPBar() {
@@ -1138,6 +1216,11 @@ const rightKnob = document.getElementById('joystick-right-knob');
 
 const JOYSTICK_RADIUS = 50;
 const KNOB_MAX = 40;
+const JOYSTICK_DEADZONE = 0.08; // filtert Finger-Zittern nahe der Mitte, verhindert Ruckeln
+
+function applyDeadzone(value, deadzone) {
+  return Math.abs(value) < deadzone ? 0 : value;
+}
 
 function updateKnob(knob, jx, jy) {
   const dx = Math.min(Math.max(jx, -1), 1) * KNOB_MAX;
@@ -1181,8 +1264,8 @@ document.addEventListener('touchmove', e => {
 
     const dx = touch.clientX - joy.baseX;
     const dy = touch.clientY - joy.baseY;
-    joy.x = Math.min(Math.max(dx / JOYSTICK_RADIUS, -1), 1);
-    joy.y = Math.min(Math.max(dy / JOYSTICK_RADIUS, -1), 1);
+    joy.x = applyDeadzone(Math.min(Math.max(dx / JOYSTICK_RADIUS, -1), 1), JOYSTICK_DEADZONE);
+    joy.y = applyDeadzone(Math.min(Math.max(dy / JOYSTICK_RADIUS, -1), 1), JOYSTICK_DEADZONE);
     updateKnob(knob, joy.x, joy.y);
   }
 }, { passive: false });
@@ -1214,6 +1297,22 @@ function handleTouchEnd(e) {
 document.addEventListener('touchend',    handleTouchEnd, { passive: false });
 document.addEventListener('touchcancel', handleTouchEnd, { passive: false });
 
+// ── Waffen-Anzeige (aktive Waffe hervorheben) ───────────────────────────────
+const weaponSlots = {
+  cannon: document.getElementById('weapon-slot-cannon'),
+  mg:     document.getElementById('weapon-slot-mg'),
+  rocket: document.getElementById('weapon-slot-rocket'),
+};
+
+function setWeaponSlotState(name, state) {
+  const el = weaponSlots[name];
+  if (!el) return;
+  el.classList.remove('active', 'cooldown', 'ready');
+  if (state) el.classList.add(state);
+}
+
+Object.keys(weaponSlots).forEach(name => setWeaponSlotState(name, 'ready'));
+
 // ── Kanone Cooldown ────────────────────────────────────────────────────────
 const CANNON_COOLDOWN = 3000;
 let cannonLastFired = -CANNON_COOLDOWN;
@@ -1233,6 +1332,7 @@ function tryFireCannon() {
 function startCannonCooldown() {
   shootBtn.disabled = true;
   shootBtn.textContent = '⏳ 3s';
+  setWeaponSlotState('cannon', 'cooldown');
   let remaining = CANNON_COOLDOWN;
   const interval = setInterval(() => {
     remaining -= 100;
@@ -1240,6 +1340,7 @@ function startCannonCooldown() {
       clearInterval(interval);
       shootBtn.disabled = false;
       shootBtn.innerHTML = '&#x1F534; Kanone';
+      setWeaponSlotState('cannon', 'ready');
     } else {
       shootBtn.textContent = `⏳ ${(remaining / 1000).toFixed(1)}s`;
     }
@@ -1365,6 +1466,7 @@ function tryFireRocket() {
 function startRocketCooldown() {
   rocketBtn.disabled = true;
   rocketBtn.textContent = '⏳ 8s';
+  setWeaponSlotState('rocket', 'cooldown');
   let remaining = ROCKET_COOLDOWN;
   const interval = setInterval(() => {
     remaining -= 100;
@@ -1372,6 +1474,7 @@ function startRocketCooldown() {
       clearInterval(interval);
       rocketBtn.disabled = false;
       rocketBtn.innerHTML = '&#x1F680; Rakete';
+      setWeaponSlotState('rocket', 'ready');
     } else {
       rocketBtn.textContent = `⏳ ${(remaining / 1000).toFixed(1)}s`;
     }
@@ -1388,10 +1491,10 @@ let mgFiring = false;
 
 const btnMG = document.getElementById('btn-mg');
 
-btnMG.addEventListener('mousedown', () => { resumeAudio(); mgFiring = true; });
-btnMG.addEventListener('mouseup', () => { mgFiring = false; });
-btnMG.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(); mgFiring = true; }, { passive: false });
-btnMG.addEventListener('touchend', e => { e.preventDefault(); mgFiring = false; }, { passive: false });
+btnMG.addEventListener('mousedown', () => { resumeAudio(); mgFiring = true; setWeaponSlotState('mg', 'active'); });
+btnMG.addEventListener('mouseup', () => { mgFiring = false; setWeaponSlotState('mg', 'ready'); });
+btnMG.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(); mgFiring = true; setWeaponSlotState('mg', 'active'); }, { passive: false });
+btnMG.addEventListener('touchend', e => { e.preventDefault(); mgFiring = false; setWeaponSlotState('mg', 'ready'); }, { passive: false });
 
 // ── Zielfernrohr ───────────────────────────────────────────────────────────
 const scopeEl = document.getElementById('scope');
@@ -1937,11 +2040,113 @@ function drawMinimap() {
 }
 
 // ── Movement constants ─────────────────────────────────────────────────────
-const TANK_MAX_SPEED = 0.30;   // 2× bisherige Höchstgeschwindigkeit
-const TANK_ACCEL     = 0.010;  // Beschleunigung pro Frame
-const TANK_DECEL     = 0.015;  // Verzögerung pro Frame
+const BASE_TANK_MAX_SPEED = 0.30;   // 2× bisherige Höchstgeschwindigkeit (Basiswert Königstiger-Referenz)
+const BASE_TANK_ACCEL     = 0.010;  // Beschleunigung pro Frame
+const BASE_TANK_DECEL     = 0.015;  // Verzögerung pro Frame
+let TANK_MAX_SPEED = BASE_TANK_MAX_SPEED;
+let TANK_ACCEL     = BASE_TANK_ACCEL;
+let TANK_DECEL     = BASE_TANK_DECEL;
+
+// ── Panzerauswahl ────────────────────────────────────────────────────────────
+let selectedTankType = null;
+
+function applyTankType(cfg) {
+  selectedTankType = cfg.key;
+
+  playerMaxHP = cfg.maxHP;
+  playerHP = cfg.maxHP;
+  updateHPBar();
+
+  TANK_MAX_SPEED = BASE_TANK_MAX_SPEED * cfg.speedFactor;
+  TANK_ACCEL     = BASE_TANK_ACCEL * cfg.speedFactor;
+  TANK_DECEL     = BASE_TANK_DECEL * cfg.speedFactor;
+
+  playerTankVisuals.bodyMat.color.set(cfg.bodyColor);
+  playerTankVisuals.cannonMat.color.set(cfg.cannonColor);
+  playerTankVisuals.trackMat.color.set(cfg.trackColor);
+  playerTankVisuals.patches.forEach(p => p.mesh.material.color.set(cfg.camoColors[p.ci]));
+
+  document.getElementById('tank-name').textContent = `${cfg.icon} ${cfg.label}`;
+
+  window.__testSelectedTank = cfg.key;
+  window.__testTankMaxSpeed = TANK_MAX_SPEED;
+}
+
+// ── Panzerauswahl-Bildschirm: rotierende 3D-Vorschauen ──────────────────────
+let previewRafId = null;
+
+function buildTankPreview(canvasId, cfg) {
+  const canvas = document.getElementById(canvasId);
+  const previewScene = new THREE.Scene();
+  previewScene.background = new THREE.Color('#12160d');
+
+  previewScene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  const previewLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  previewLight.position.set(4, 8, 6);
+  previewScene.add(previewLight);
+
+  const previewCamera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+  previewCamera.position.set(0, 3.2, 9);
+  previewCamera.lookAt(0, 1, 0);
+
+  const previewRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+  const built = buildTankMesh(cfg);
+  previewScene.add(built.tank);
+
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (w === 0 || h === 0) return;
+    previewRenderer.setSize(w, h, false);
+    previewCamera.aspect = w / h;
+    previewCamera.updateProjectionMatrix();
+  }
+
+  return { previewScene, previewCamera, previewRenderer, tank: built.tank, resize };
+}
+
+const tankPreviews = [
+  buildTankPreview('preview-koenigstiger', TANK_TYPES.koenigstiger),
+  buildTankPreview('preview-leopard', TANK_TYPES.leopard),
+];
+
+function animateTankPreviews() {
+  previewRafId = requestAnimationFrame(animateTankPreviews);
+  for (const p of tankPreviews) {
+    p.resize();
+    p.tank.rotation.y += 0.012;
+    p.previewRenderer.render(p.previewScene, p.previewCamera);
+  }
+}
+animateTankPreviews();
+
+function stopTankPreviews() {
+  if (previewRafId !== null) {
+    cancelAnimationFrame(previewRafId);
+    previewRafId = null;
+  }
+}
+
+function selectTank(typeKey) {
+  applyTankType(TANK_TYPES[typeKey]);
+  document.getElementById('tank-select-screen').style.display = 'none';
+  stopTankPreviews();
+}
+
+['koenigstiger', 'leopard'].forEach(typeKey => {
+  const btn = document.getElementById(`btn-select-${typeKey}`);
+  btn.addEventListener('click', () => { resumeAudio(); selectTank(typeKey); });
+  btn.addEventListener('touchend', e => { e.preventDefault(); resumeAudio(); selectTank(typeKey); }, { passive: false });
+});
 const turnSpeed      = 0.03;
 let   tankCurrentSpeed = 0;
+
+// Eingabe-Glättung (Drehung/Turm), damit schnelle Joystick-Richtungswechsel
+// nicht ruckartig, sondern weich ankommen.
+const INPUT_SMOOTH_RATE = 18; // je höher, desto direkter (weniger Trägheit)
+let smoothRotY = 0;
+let smoothTurretY = 0;
 
 // ── Animation Loop ─────────────────────────────────────────────────────────
 let lastTime = performance.now();
@@ -2000,10 +2205,13 @@ function animate() {
 
     // MG auto-fire
     if (keys['f'] || mgFiring) {
+      setWeaponSlotState('mg', 'active');
       if (now - mgLastFired >= MG_COOLDOWN) {
         mgLastFired = now;
         fireMG();
       }
+    } else {
+      setWeaponSlotState('mg', 'ready');
     }
   }
 
@@ -2015,11 +2223,17 @@ function animate() {
     tankCurrentSpeed = Math.max(tankCurrentSpeed - TANK_DECEL, targetSpeed);
   }
   tank.translateZ(-tankCurrentSpeed);
-  tank.rotateY(turnSpeed * rotY);
+
+  // Gedrehte Eingaben glätten (weiche Reaktion statt Ruckeln bei schnellen Richtungswechseln)
+  const smoothing = Math.min(1, INPUT_SMOOTH_RATE * dt);
+  smoothRotY    += (rotY - smoothRotY) * smoothing;
+  smoothTurretY += (turretY - smoothTurretY) * smoothing;
+
+  tank.rotateY(turnSpeed * smoothRotY);
   tank.position.y = 0;
 
   // 3. Turm (im Zoom-Modus verlangsamt)
-  turret.rotateY(turnSpeed * turretY * (scopeActive ? 0.04 : 1.0));
+  turret.rotateY(turnSpeed * smoothTurretY * (scopeActive ? 0.04 : 1.0));
 
   // 4. Projektile
   updateProjectiles(dt);
