@@ -434,6 +434,9 @@ const TANK_TYPES = {
     armorLabel: 'Stark',
     speedPct: 40,
     armorPct: 90,
+    wheelStyle: 'overlapping',  // Schachtellaufwerk (historisches Markenzeichen des Tiger II)
+    muzzleStyle: 'doubleBaffle', // 8.8cm KwK 43: zweistufige Mündungsbremse
+    turretStyle: 'roundedMantlet',
   },
   leopard: {
     key: 'leopard',
@@ -451,7 +454,9 @@ const TANK_TYPES = {
     armorLabel: 'Moderat',
     speedPct: 85,
     armorPct: 55,
-    thermalSleeve: true, // Wärmeschutzhülle auf der Glattrohrkanone (modernes Kennzeichen)
+    wheelStyle: 'modern',    // gleichmäßige Einzellaufrollen, kein Überlapp
+    muzzleStyle: 'sleeve',   // Glattrohr ohne Bremse, nur Wärmeschutzhülle
+    turretStyle: 'wedge',    // keilförmige Verbundpanzerung-Front (Leopard 2A5+)
   },
 };
 
@@ -485,13 +490,12 @@ function addCamoPatch(parent, spec, color) {
 // Kommandantenkuppel/Mündungsbremse geben der Silhouette ein echtes Panzer-Profil
 // statt der reinen Box-Optik aus Phase 1–4.
 
-function addRoadWheels(tankGroup, hubMat, bodyDepth) {
+function makeWheelAdder(tankGroup, hubMat) {
   // Laufrollen bewusst heller als die Kette/Nabe, damit sie sich von den
   // dunklen Ketten absetzen und als Räder erkennbar bleiben.
   const tireMat = new THREE.MeshLambertMaterial({ color: '#4a4a4a' });
-
-  function addWheel(xOff, y, z, radius, depth) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, depth, 12), tireMat);
+  return function addWheel(xOff, y, z, radius, depth) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, depth, 14), tireMat);
     wheel.rotation.z = Math.PI / 2;
     wheel.position.set(xOff, y, z);
     wheel.castShadow = true;
@@ -501,8 +505,12 @@ function addRoadWheels(tankGroup, hubMat, bodyDepth) {
     hub.rotation.z = Math.PI / 2;
     hub.position.set(xOff, y, z);
     tankGroup.add(hub);
-  }
+  };
+}
 
+// Moderner Laufwerk-Stil (z.B. Leopard 2): gleichmäßige Einzelrollen, kein Überlapp.
+function addRoadWheelsModern(tankGroup, hubMat, bodyDepth) {
+  const addWheel = makeWheelAdder(tankGroup, hubMat);
   const WHEEL_COUNT = 6;
   const zFrom = -bodyDepth / 2 + 0.7;
   const zTo   =  bodyDepth / 2 - 0.7;
@@ -515,6 +523,35 @@ function addRoadWheels(tankGroup, hubMat, bodyDepth) {
     addWheel(xOff, 0.5,  zFrom - 0.55, 0.48, 0.3);
     addWheel(xOff, 0.48, zTo + 0.55,   0.46, 0.3);
   }
+}
+
+// Schachtellaufwerk (Tiger II): grosse Laufrollen in zwei versetzten,
+// sich überlappenden Reihen je Seite – historisches Markenzeichen.
+function addRoadWheelsOverlapping(tankGroup, hubMat, bodyDepth) {
+  const addWheel = makeWheelAdder(tankGroup, hubMat);
+  const OUTER_COUNT = 5;
+  const INNER_COUNT = 4;
+  const zFrom = -bodyDepth / 2 + 0.75;
+  const zTo   =  bodyDepth / 2 - 0.75;
+  const radius = 0.55;
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < OUTER_COUNT; i++) {
+      const z = zFrom + (zTo - zFrom) * (i / (OUTER_COUNT - 1));
+      addWheel(side * 2.6, 0.52, z, radius, 0.3);
+    }
+    for (let i = 0; i < INNER_COUNT; i++) {
+      const z = zFrom + (zTo - zFrom) * ((i + 0.5) / OUTER_COUNT);
+      addWheel(side * 2.2, 0.52, z, radius, 0.3);
+    }
+    // Antriebsrad vorne und Leitrad hinten (auf der äußeren Reihe)
+    addWheel(side * 2.6, 0.58, zFrom - 0.6, 0.6, 0.32);
+    addWheel(side * 2.6, 0.56, zTo + 0.6,   0.58, 0.32);
+  }
+}
+
+function addRoadWheels(tankGroup, hubMat, bodyDepth, style) {
+  if (style === 'overlapping') addRoadWheelsOverlapping(tankGroup, hubMat, bodyDepth);
+  else addRoadWheelsModern(tankGroup, hubMat, bodyDepth);
 }
 
 function addGlacisPlate(bodyMesh, bodyColor, bodyWidth, bodyDepth) {
@@ -543,14 +580,40 @@ function addAntenna(bodyMesh, bodyDepth) {
   bodyMesh.add(antenna);
 }
 
-function addTurretMantlet(turretGroup, cannonColor) {
+// Gerundetes Mantlet (historische Kanonenblende, z.B. Königstiger).
+function addTurretMantlet(turretGroup, cannonColor, turretDepth) {
   const mantletMat = new THREE.MeshLambertMaterial({ color: cannonColor });
   const mantlet = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.52, 0.7, 12), mantletMat);
   mantlet.rotation.x = Math.PI / 2;
-  mantlet.position.set(0, -0.05, -1.25);
+  mantlet.position.set(0, -0.05, -turretDepth / 2);
   mantlet.castShadow = true;
   turretGroup.add(mantlet);
   return mantlet;
+}
+
+// Keilförmige Verbundpanzerung-Front (moderne Optik, z.B. Leopard 2A5+):
+// flache, geneigte Panzerplatten statt rundem Mantlet.
+function addWedgeTurretFront(turretGroup, cannonColor, bodyColor, turretWidth, turretDepth) {
+  const mantletMat = new THREE.MeshLambertMaterial({ color: cannonColor });
+  const mantlet = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.4), mantletMat);
+  mantlet.position.set(0, -0.05, -turretDepth / 2 - 0.05);
+  mantlet.castShadow = true;
+  turretGroup.add(mantlet);
+
+  const wedgeMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+  const wedge = new THREE.Mesh(new THREE.BoxGeometry(turretWidth - 0.1, 0.5, 0.75), wedgeMat);
+  wedge.position.set(0, 0.35, -turretDepth / 2 - 0.05);
+  wedge.rotation.x = -0.45; // geneigte Verbundpanzerung-Module
+  wedge.castShadow = true;
+  turretGroup.add(wedge);
+
+  [-1, 1].forEach(side => {
+    const sidePanel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.8), wedgeMat);
+    sidePanel.position.set(side * (turretWidth / 2 - 0.05), 0.15, -turretDepth / 2 + 0.25);
+    sidePanel.rotation.y = side * 0.4;
+    sidePanel.castShadow = true;
+    turretGroup.add(sidePanel);
+  });
 }
 
 function addCommanderCupola(turretGroup, bodyColor, trackColor, turretHeight) {
@@ -566,23 +629,35 @@ function addCommanderCupola(turretGroup, bodyColor, trackColor, turretHeight) {
   turretGroup.add(hatch);
 }
 
-function addMuzzleBrake(turretGroup, cannonColor, thermalSleeve) {
+// Zweistufige Mündungsbremse (z.B. 8.8cm KwK 43 des Königstiger).
+function addDoubleBaffleMuzzleBrake(turretGroup, cannonColor) {
   const brakeMat = new THREE.MeshLambertMaterial({ color: cannonColor });
-  const brake = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.5, 8), brakeMat);
-  brake.rotation.x = Math.PI / 2;
-  brake.position.set(0, 0, -4.45);
-  turretGroup.add(brake);
+  const stage1 = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.4, 10), brakeMat);
+  stage1.rotation.x = Math.PI / 2;
+  stage1.position.set(0, 0, -4.3);
+  turretGroup.add(stage1);
 
-  if (thermalSleeve) {
-    // Wärmeschutzhülle: helle Ringe auf dem Rohr (modernes Kennzeichen, z.B. Leopard 2)
-    const bandMat = new THREE.MeshLambertMaterial({ color: '#c9c9c2' });
-    [-3.1, -3.7].forEach(z => {
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.22, 8), bandMat);
-      band.rotation.x = Math.PI / 2;
-      band.position.set(0, 0, z);
-      turretGroup.add(band);
-    });
-  }
+  const stage2 = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.31, 0.35, 10), brakeMat);
+  stage2.rotation.x = Math.PI / 2;
+  stage2.position.set(0, 0, -4.65);
+  turretGroup.add(stage2);
+}
+
+// Wärmeschutzhülle ohne Bremse (Glattrohrkanone, z.B. Leopard 2): helle Ringe
+// auf dem Rohr, das Rohr selbst bleibt schlank bis zur Mündung.
+function addThermalSleeve(turretGroup) {
+  const bandMat = new THREE.MeshLambertMaterial({ color: '#c9c9c2' });
+  [-2.9, -3.5, -4.1].forEach(z => {
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.22, 8), bandMat);
+    band.rotation.x = Math.PI / 2;
+    band.position.set(0, 0, z);
+    turretGroup.add(band);
+  });
+}
+
+function addMuzzleDetails(turretGroup, cannonColor, style) {
+  if (style === 'doubleBaffle') addDoubleBaffleMuzzleBrake(turretGroup, cannonColor);
+  else addThermalSleeve(turretGroup);
 }
 
 // ── Panzer-Baukasten (baut Spieler-Panzer UND Auswahl-Vorschauen) ───────────
@@ -607,7 +682,7 @@ function buildTankMesh(cfg) {
     track.castShadow = true;
     tankGroup.add(track);
   });
-  addRoadWheels(tankGroup, trackMat, cfg.bodySize.d);
+  addRoadWheels(tankGroup, trackMat, cfg.bodySize.d, cfg.wheelStyle);
   addGlacisPlate(bodyMesh, cfg.bodyColor, cfg.bodySize.w, cfg.bodySize.d);
   addEngineDeckDetail(bodyMesh, cfg.trackColor, cfg.bodySize.w, cfg.bodySize.d);
   addAntenna(bodyMesh, cfg.bodySize.d);
@@ -630,9 +705,13 @@ function buildTankMesh(cfg) {
   cannonMesh.castShadow = true;
   turretGroup.add(cannonMesh);
 
-  addTurretMantlet(turretGroup, cfg.cannonColor);
+  if (cfg.turretStyle === 'wedge') {
+    addWedgeTurretFront(turretGroup, cfg.cannonColor, cfg.bodyColor, cfg.turretSize.w, cfg.turretSize.d);
+  } else {
+    addTurretMantlet(turretGroup, cfg.cannonColor, cfg.turretSize.d);
+  }
   addCommanderCupola(turretGroup, cfg.bodyColor, cfg.trackColor, cfg.turretSize.h);
-  addMuzzleBrake(turretGroup, cfg.cannonColor, cfg.thermalSleeve);
+  addMuzzleDetails(turretGroup, cfg.cannonColor, cfg.muzzleStyle);
 
   // Tarnmuster
   const patches = CAMO_PATCH_SPECS.map(spec => {
@@ -1695,7 +1774,7 @@ function buildEnemyTank(bodyColor) {
         tr.castShadow = true;
         group.add(tr);
     });
-    addRoadWheels(group, trackMat, 6);
+    addRoadWheels(group, trackMat, 6, 'modern');
     addGlacisPlate(corpus, bodyColor, 4, 6);
     addEngineDeckDetail(corpus, '#222222', 4, 6);
     addAntenna(corpus, 6);
@@ -1723,9 +1802,9 @@ function buildEnemyTank(bodyColor) {
     eCannon.position.set(0, 0, -2.5);
     turretGroup.add(eCannon);
 
-    addTurretMantlet(turretGroup, '#222');
+    addTurretMantlet(turretGroup, '#222', 2.5);
     addCommanderCupola(turretGroup, bodyColor, '#222222', 1.2);
-    addMuzzleBrake(turretGroup, '#222', false);
+    addMuzzleDetails(turretGroup, '#222', 'doubleBaffle');
 
     // Tarnmuster auf Gegner-Panzer
     function ePatch(parent, x, y, z, w, h, d, col) {

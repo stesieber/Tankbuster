@@ -93,13 +93,26 @@ um Detail-Bauteile erweitert, die auch der Gegner-Panzer-Baukasten
 
 | Bauteil | Funktion | Beschreibung |
 |---|---|---|
-| Laufrollen | `addRoadWheels()` | 6 Laufrollen + Antriebs-/Leitrad je Seite, helle Reifen + dunkle Nabe, lugen unter der Kette hervor |
+| Laufrollen | `addRoadWheels()` | Verzweigt je `cfg.wheelStyle` in `addRoadWheelsModern()` oder `addRoadWheelsOverlapping()` |
 | Geneigte Wannenfront | `addGlacisPlate()` | Schräge Frontplatte statt Steilwand |
 | Triebwerksdeck | `addEngineDeckDetail()` | Dunkle Gitter-Andeutung auf dem Heck |
 | Antenne | `addAntenna()` | Dünner Stab am Heck |
-| Kanonenblende (Mantlet) | `addTurretMantlet()` | Gerundeter Übergang Turm→Rohr |
+| Turmfront | `addTurretMantlet()` / `addWedgeTurretFront()` | Verzweigt je `cfg.turretStyle` |
 | Kommandantenkuppel + Luke | `addCommanderCupola()` | Zylinder + flache Luke auf dem Turmdach |
-| Mündungsbremse | `addMuzzleBrake()` | Verdickung an der Rohrspitze; Leopard 2 A8 zusätzlich mit heller Wärmeschutzhülle (`thermalSleeve: true`) |
+| Mündungsbauteil | `addMuzzleDetails()` | Verzweigt je `cfg.muzzleStyle` in `addDoubleBaffleMuzzleBrake()` oder `addThermalSleeve()` |
+
+Nach der ersten (generischen) Detail-Runde wurden Königstiger und Leopard 2 A8
+zusätzlich historisch differenziert – über drei Konfig-Felder pro Typ:
+
+| Feld | Königstiger | Leopard 2 A8 |
+|---|---|---|
+| `wheelStyle` | `'overlapping'` – Schachtellaufwerk: 5 große Laufrollen außen + 4 versetzte innen je Seite, überlappen sich sichtbar (historisches Markenzeichen des Tiger II) | `'modern'` – 6 gleichmäßig verteilte Einzelrollen, kein Überlapp |
+| `turretStyle` | `'roundedMantlet'` – gerundete Kanonenblende (`addTurretMantlet`) | `'wedge'` – flache, geneigte Verbundpanzerung-Module + seitliche Schrägkanten (`addWedgeTurretFront`), passend zur modernen Leopard-2A5+-Turmform |
+| `muzzleStyle` | `'doubleBaffle'` – zweistufige Mündungsbremse der 8.8cm KwK 43 | `'sleeve'` – schlankes Glattrohr ohne Bremse, nur helle Wärmeschutzhülle-Ringe |
+
+`buildEnemyTank()` nutzt weiterhin den generischen/modernen Satz
+(`'modern'` / `'roundedMantlet'` / `'doubleBaffle'`), da Gegner nicht Teil der
+Panzerauswahl sind.
 
 Panzerung wird als effektive Max-HP abgebildet (kein zusätzlicher
 Rüstungs-Multiplikator auf den Schaden) – Königstiger hält mehr Treffer aus,
