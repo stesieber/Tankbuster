@@ -451,6 +451,7 @@ const TANK_TYPES = {
     armorLabel: 'Moderat',
     speedPct: 85,
     armorPct: 55,
+    thermalSleeve: true, // Wärmeschutzhülle auf der Glattrohrkanone (modernes Kennzeichen)
   },
 };
 
@@ -479,6 +480,111 @@ function addCamoPatch(parent, spec, color) {
   return m;
 }
 
+// ── Realistische Detail-Bauteile (von Spieler- UND Gegner-Panzern genutzt) ──
+// Reine Grundformen (keine externen Modelle), aber Laufrollen/Wanne/Mantlet/
+// Kommandantenkuppel/Mündungsbremse geben der Silhouette ein echtes Panzer-Profil
+// statt der reinen Box-Optik aus Phase 1–4.
+
+function addRoadWheels(tankGroup, hubMat, bodyDepth) {
+  // Laufrollen bewusst heller als die Kette/Nabe, damit sie sich von den
+  // dunklen Ketten absetzen und als Räder erkennbar bleiben.
+  const tireMat = new THREE.MeshLambertMaterial({ color: '#4a4a4a' });
+
+  function addWheel(xOff, y, z, radius, depth) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, depth, 12), tireMat);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(xOff, y, z);
+    wheel.castShadow = true;
+    tankGroup.add(wheel);
+
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.45, radius * 0.45, depth + 0.05, 8), hubMat);
+    hub.rotation.z = Math.PI / 2;
+    hub.position.set(xOff, y, z);
+    tankGroup.add(hub);
+  }
+
+  const WHEEL_COUNT = 6;
+  const zFrom = -bodyDepth / 2 + 0.7;
+  const zTo   =  bodyDepth / 2 - 0.7;
+  for (const xOff of [-2.3, 2.3]) {
+    for (let i = 0; i < WHEEL_COUNT; i++) {
+      const z = zFrom + (zTo - zFrom) * (i / (WHEEL_COUNT - 1));
+      addWheel(xOff, 0.44, z, 0.42, 0.28);
+    }
+    // Antriebsrad vorne (etwas größer/erhöht) und Leitrad hinten
+    addWheel(xOff, 0.5,  zFrom - 0.55, 0.48, 0.3);
+    addWheel(xOff, 0.48, zTo + 0.55,   0.46, 0.3);
+  }
+}
+
+function addGlacisPlate(bodyMesh, bodyColor, bodyWidth, bodyDepth) {
+  const glacisMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+  const glacis = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth - 0.4, 0.9, 1.4), glacisMat);
+  glacis.position.set(0, 0.35, -bodyDepth / 2 + 0.55);
+  glacis.rotation.x = -0.55; // geneigte Frontpanzerung statt Steilwand
+  glacis.castShadow = true;
+  bodyMesh.add(glacis);
+  return glacis;
+}
+
+function addEngineDeckDetail(bodyMesh, trackColor, bodyWidth, bodyDepth) {
+  const deckMat = new THREE.MeshLambertMaterial({ color: trackColor });
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth - 0.7, 0.07, 1.6), deckMat);
+  deck.position.set(0, 0.79, bodyDepth / 2 - 1.5);
+  bodyMesh.add(deck);
+}
+
+function addAntenna(bodyMesh, bodyDepth) {
+  const antennaMat = new THREE.MeshLambertMaterial({ color: '#161616' });
+  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.0, 6), antennaMat);
+  antenna.position.set(1.55, 1.6, bodyDepth / 2 - 1.0);
+  antenna.rotation.z = 0.1;
+  antenna.rotation.x = -0.05;
+  bodyMesh.add(antenna);
+}
+
+function addTurretMantlet(turretGroup, cannonColor) {
+  const mantletMat = new THREE.MeshLambertMaterial({ color: cannonColor });
+  const mantlet = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.52, 0.7, 12), mantletMat);
+  mantlet.rotation.x = Math.PI / 2;
+  mantlet.position.set(0, -0.05, -1.25);
+  mantlet.castShadow = true;
+  turretGroup.add(mantlet);
+  return mantlet;
+}
+
+function addCommanderCupola(turretGroup, bodyColor, trackColor, turretHeight) {
+  const cupolaMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+  const cupola = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.3, 10), cupolaMat);
+  cupola.position.set(0.65, turretHeight / 2 + 0.15, 0.55);
+  cupola.castShadow = true;
+  turretGroup.add(cupola);
+
+  const hatchMat = new THREE.MeshLambertMaterial({ color: trackColor });
+  const hatch = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 10), hatchMat);
+  hatch.position.set(0.65, turretHeight / 2 + 0.33, 0.4);
+  turretGroup.add(hatch);
+}
+
+function addMuzzleBrake(turretGroup, cannonColor, thermalSleeve) {
+  const brakeMat = new THREE.MeshLambertMaterial({ color: cannonColor });
+  const brake = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.5, 8), brakeMat);
+  brake.rotation.x = Math.PI / 2;
+  brake.position.set(0, 0, -4.45);
+  turretGroup.add(brake);
+
+  if (thermalSleeve) {
+    // Wärmeschutzhülle: helle Ringe auf dem Rohr (modernes Kennzeichen, z.B. Leopard 2)
+    const bandMat = new THREE.MeshLambertMaterial({ color: '#c9c9c2' });
+    [-3.1, -3.7].forEach(z => {
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.22, 8), bandMat);
+      band.rotation.x = Math.PI / 2;
+      band.position.set(0, 0, z);
+      turretGroup.add(band);
+    });
+  }
+}
+
 // ── Panzer-Baukasten (baut Spieler-Panzer UND Auswahl-Vorschauen) ───────────
 function buildTankMesh(cfg) {
   const tankColorMat = new THREE.MeshLambertMaterial({ color: cfg.bodyColor });
@@ -501,6 +607,10 @@ function buildTankMesh(cfg) {
     track.castShadow = true;
     tankGroup.add(track);
   });
+  addRoadWheels(tankGroup, trackMat, cfg.bodySize.d);
+  addGlacisPlate(bodyMesh, cfg.bodyColor, cfg.bodySize.w, cfg.bodySize.d);
+  addEngineDeckDetail(bodyMesh, cfg.trackColor, cfg.bodySize.w, cfg.bodySize.d);
+  addAntenna(bodyMesh, cfg.bodySize.d);
 
   const turretGroup = new THREE.Group();
   turretGroup.position.set(0, 1.3, 0);
@@ -519,6 +629,10 @@ function buildTankMesh(cfg) {
   cannonMesh.position.set(0, 0, -2.5); // -Z = Vorderseite (Tank fährt in -Z)
   cannonMesh.castShadow = true;
   turretGroup.add(cannonMesh);
+
+  addTurretMantlet(turretGroup, cfg.cannonColor);
+  addCommanderCupola(turretGroup, cfg.bodyColor, cfg.trackColor, cfg.turretSize.h);
+  addMuzzleBrake(turretGroup, cfg.cannonColor, cfg.thermalSleeve);
 
   // Tarnmuster
   const patches = CAMO_PATCH_SPECS.map(spec => {
@@ -1581,6 +1695,10 @@ function buildEnemyTank(bodyColor) {
         tr.castShadow = true;
         group.add(tr);
     });
+    addRoadWheels(group, trackMat, 6);
+    addGlacisPlate(corpus, bodyColor, 4, 6);
+    addEngineDeckDetail(corpus, '#222222', 4, 6);
+    addAntenna(corpus, 6);
 
     const turretGroup = new THREE.Group();
     turretGroup.position.set(0, 1.3, 0);
@@ -1604,6 +1722,10 @@ function buildEnemyTank(bodyColor) {
     eCannon.rotation.x = Math.PI / 2;
     eCannon.position.set(0, 0, -2.5);
     turretGroup.add(eCannon);
+
+    addTurretMantlet(turretGroup, '#222');
+    addCommanderCupola(turretGroup, bodyColor, '#222222', 1.2);
+    addMuzzleBrake(turretGroup, '#222', false);
 
     // Tarnmuster auf Gegner-Panzer
     function ePatch(parent, x, y, z, w, h, d, col) {
