@@ -912,6 +912,10 @@ function updateProjectiles(dt) {
 
     // Reichweite überschritten
     if (p.distanceTravelled > p.maxDistance) {
+      if (p.isRocket) {
+        const impactPos = p.mesh.position.clone();
+        createRocketExplosion(impactPos, p.blastRadius);
+      }
       scene.remove(p.mesh); if (p.mesh.geometry) { p.mesh.geometry.dispose(); p.mesh.material.dispose(); }
       projectiles.splice(i, 1);
       continue;
