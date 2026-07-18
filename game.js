@@ -48,7 +48,7 @@ scene.add(dirLight);
 
 // ── Ground ─────────────────────────────────────────────────────────────────
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(1000, 1000),
+  new THREE.PlaneGeometry(1000, 1000, 100, 100),
   new THREE.MeshLambertMaterial({ color: '#4a5e23' })
 );
 ground.rotation.x = -Math.PI / 2;
@@ -58,6 +58,55 @@ scene.add(ground);
 // ── Fluss & Brücken ────────────────────────────────────────────────────────
 const RIVER_Z      = -30;
 const RIVER_HALF_W = 10;   // 20 Einheiten Gesamtbreite
+const SOUTH_ROAD_Z = RIVER_Z + RIVER_HALF_W + 9;   // -11
+const NORTH_ROAD_Z = RIVER_Z - RIVER_HALF_W - 9;   // -49
+const VERTICAL_ROAD_XS = [-200, 0, 200];
+
+// ── Hügel-Landschaft (Höhenkarte) ───────────────────────────────────────────
+// Sanfte, überlagerte Sinuswellen statt echtem Perlin-Noise (kein zusätzliches
+// Noise-Paket nötig). Fluss und Straßen bleiben flach: distanceToFlatZones()
+// dämpft die Hügelamplitude in einem Streifen um Fluss/Straßen auf 0 und
+// blendet darüber hinaus weich (smoothstep) zur vollen Amplitude auf, damit
+// Brücken, Uferstraßen und Kreuzungen nicht im Gelände versinken.
+function smoothFalloff(dist, blendWidth) {
+  if (dist <= 0) return 0;
+  if (dist >= blendWidth) return 1;
+  const t = dist / blendWidth;
+  return t * t * (3 - 2 * t);
+}
+
+function distanceToFlatZones(x, z) {
+  let factor = 1;
+  factor = Math.min(factor, smoothFalloff(Math.abs(z - RIVER_Z) - (RIVER_HALF_W + 6), 20));
+  factor = Math.min(factor, smoothFalloff(Math.abs(z - SOUTH_ROAD_Z) - 6, 20));
+  factor = Math.min(factor, smoothFalloff(Math.abs(z - NORTH_ROAD_Z) - 6, 20));
+  for (const rx of VERTICAL_ROAD_XS) {
+    factor = Math.min(factor, smoothFalloff(Math.abs(x - rx) - 6, 20));
+  }
+  return factor;
+}
+
+function baseHillHeight(x, z) {
+  return 3.5 * Math.sin(x * 0.008 + 1.3) * Math.cos(z * 0.007 - 0.7)
+       + 2.0 * Math.sin(x * 0.014 - z * 0.011)
+       + 1.2 * Math.sin(z * 0.021 + x * 0.005);
+}
+
+function getTerrainHeight(x, z) {
+  return baseHillHeight(x, z) * distanceToFlatZones(x, z);
+}
+
+function applyTerrainToGround(mesh) {
+  const posAttr = mesh.geometry.attributes.position;
+  for (let i = 0; i < posAttr.count; i++) {
+    const worldX = posAttr.getX(i);
+    const worldZ = -posAttr.getY(i); // Plane liegt vor der Rotation in der XY-Ebene: lokal-Y → Welt-Z (negiert)
+    posAttr.setZ(i, getTerrainHeight(worldX, worldZ)); // lokal-Z → Welt-Y (Höhe) nach der -90°-X-Rotation
+  }
+  posAttr.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+}
+applyTerrainToGround(ground);
 
 // Flusswasser
 const riverMesh = new THREE.Mesh(
@@ -124,8 +173,6 @@ buildBridge(90);
 
 // ── Straßennetz ────────────────────────────────────────────────────────────
 const ROAD_Y    = 0.04;
-const SOUTH_ROAD_Z = RIVER_Z + RIVER_HALF_W + 9;   // -11
-const NORTH_ROAD_Z = RIVER_Z - RIVER_HALF_W - 9;   // -49
 
 const roadMat = new THREE.MeshLambertMaterial({ color: '#3a3a3a' });
 
@@ -133,8 +180,13 @@ function buildRoad(x1, z1, x2, z2, width) {
   const dx = x2 - x1, dz = z2 - z1;
   const length = Math.sqrt(dx * dx + dz * dz);
   if (length < 0.5) return;
+  // Straßen folgen sanft dem Gelände: Höhe = Mittelwert der Endpunkt-Bodenhöhen
+  // (Haupt-/Kreuzungsstraßen liegen ohnehin in den flach gehaltenen Zonen,
+  // Haus-Zufahrten auf Hügeln bekommen so zumindest die richtige Grundhöhe).
+  const y1 = getTerrainHeight(x1, z1);
+  const y2 = getTerrainHeight(x2, z2);
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, 0.06, length), roadMat);
-  mesh.position.set((x1 + x2) / 2, ROAD_Y, (z1 + z2) / 2);
+  mesh.position.set((x1 + x2) / 2, (y1 + y2) / 2 + ROAD_Y, (z1 + z2) / 2);
   mesh.rotation.y = Math.atan2(dx, dz);
   mesh.receiveShadow = true;
   scene.add(mesh);
@@ -145,7 +197,7 @@ buildRoad(-500, SOUTH_ROAD_Z,  500, SOUTH_ROAD_Z, 6);
 buildRoad(-500, NORTH_ROAD_Z,  500, NORTH_ROAD_Z, 6);
 
 // Nord–Süd-Verbindungsstraßen (durch die ganze Karte)
-for (const rx of [-200, 0, 200]) {
+for (const rx of VERTICAL_ROAD_XS) {
   buildRoad(rx, -500, rx,  500, 5);
 }
 
@@ -272,7 +324,7 @@ for (let i = 0; i < 10; i++) {
   const d = randomBetween(8, 15);
   const group = buildHouse(w, h, d);
   const pos = randomPositionFarFrom(30, 380);
-  group.position.set(pos.x, h / 2, pos.z);
+  group.position.set(pos.x, getTerrainHeight(pos.x, pos.z) + h / 2, pos.z);
   scene.add(group);
   houses.push({ mesh: group, hp: 100, destroyed: false, bw: w, bh: h, bd: d, beingRammed: false, holeMesh: null, ramDmgAccum: 0 });
 }
@@ -301,7 +353,7 @@ for (let i = 0; i < 30; i++) {
   group.add(crown);
 
   const pos = randomPositionFarFrom(15, 400);
-  group.position.set(pos.x, 0, pos.z);
+  group.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z);
   scene.add(group);
   trees.push({ group, falling: false, fallen: false, fallAngle: 0, fallSpeed: 0, axis: new THREE.Vector3(1, 0, 0) });
 }
@@ -330,7 +382,9 @@ function spawnForest(cx, cz, radius, count) {
 
     const angle = Math.random() * Math.PI * 2;
     const r     = Math.sqrt(Math.random()) * radius;
-    group.position.set(cx + Math.cos(angle) * r, 0, cz + Math.sin(angle) * r);
+    const tx = cx + Math.cos(angle) * r;
+    const tz = cz + Math.sin(angle) * r;
+    group.position.set(tx, getTerrainHeight(tx, tz), tz);
     scene.add(group);
     trees.push({ group, falling: false, fallen: false, fallAngle: 0, fallSpeed: 0, axis: new THREE.Vector3(1, 0, 0) });
   }
@@ -382,7 +436,7 @@ for (let i = 0; i < 50; i++) {
   const r = randomBetween(0.8, 1.5);
   const group = buildBush(r);
   const pos = randomPositionFarFrom(10, 420);
-  group.position.set(pos.x, 0, pos.z);
+  group.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z);
   scene.add(group);
   bushes.push({ group, radius: r, flattening: false, flattened: false, flatProgress: 0 });
 }
@@ -457,6 +511,66 @@ const TANK_TYPES = {
     wheelStyle: 'modern',    // gleichmäßige Einzellaufrollen, kein Überlapp
     muzzleStyle: 'sleeve',   // Glattrohr ohne Bremse, nur Wärmeschutzhülle
     turretStyle: 'wedge',    // keilförmige Verbundpanzerung-Front (Leopard 2A5+)
+  },
+  abrams: {
+    key: 'abrams',
+    label: 'M1A2 Abrams',
+    icon: '🦅',
+    bodyColor: '#7a765f',
+    cannonColor: '#55523f',
+    trackColor: '#2a2a2a',
+    camoColors: ['#6a6650', '#8f8a6c', '#4a4736', '#a39c7c'],
+    bodySize: { w: 4.0, h: 1.4,  d: 6.2 },
+    turretSize: { w: 2.6, h: 1.1, d: 2.7 },
+    speedFactor: 1.05,
+    maxHP: 115,
+    speedLabel: 'Mittel',
+    armorLabel: 'Mittel',
+    speedPct: 60,
+    armorPct: 65,
+    wheelStyle: 'modern',
+    muzzleStyle: 'sleeve',    // 120mm Glattrohr M256, Wärmeschutzhülle
+    turretStyle: 'wedge',     // moderne Verbundpanzerung-Front
+  },
+  t90: {
+    key: 't90',
+    label: 'T-90',
+    icon: '🐻',
+    bodyColor: '#4a5a3a',
+    cannonColor: '#333d28',
+    trackColor: '#1e1e1e',
+    camoColors: ['#3a4a2c', '#5c6e46', '#232b18', '#6e5a34'],
+    bodySize: { w: 3.8, h: 1.35, d: 6.1 },
+    turretSize: { w: 2.4, h: 1.0,  d: 2.4 },
+    speedFactor: 0.75,
+    maxHP: 160,
+    speedLabel: 'Langsam',
+    armorLabel: 'Sehr stark',
+    speedPct: 30,
+    armorPct: 95,
+    wheelStyle: 'modern',
+    muzzleStyle: 'doubleBaffle', // 125mm 2A46 mit Rauchabsauger-Andeutung
+    turretStyle: 'roundedMantlet', // gegossener Turm
+  },
+  leclerc: {
+    key: 'leclerc',
+    label: 'Leclerc',
+    icon: '🐓',
+    bodyColor: '#7a7256',
+    cannonColor: '#4f4a38',
+    trackColor: '#2a2a2a',
+    camoColors: ['#5c5640', '#847c5c', '#39351f', '#9c8f5f'],
+    bodySize: { w: 3.7, h: 1.2,  d: 6.0 },
+    turretSize: { w: 2.2, h: 0.9,  d: 2.5 },
+    speedFactor: 1.55,
+    maxHP: 90,
+    speedLabel: 'Sehr schnell',
+    armorLabel: 'Moderat',
+    speedPct: 98,
+    armorPct: 50,
+    wheelStyle: 'modern',
+    muzzleStyle: 'sleeve',
+    turretStyle: 'wedge',     // markante eckige Panzerung-Module
   },
 };
 
@@ -709,20 +823,27 @@ function buildTankMesh(cfg) {
   turretBoxMesh.castShadow = true;
   turretGroup.add(turretBoxMesh);
 
+  // Höhenwinkel-Pivot: Kanone, Mündungsbauteile und Raketenwerfer hängen alle
+  // an gunPivot und neigen sich gemeinsam per gunPivot.rotation.x (-5°..+20°).
+  // Liegt bei (0,0,0) im Turm-Lokalraum, daher bleiben alle Kindkoordinaten
+  // unverändert gegenüber der bisherigen Befestigung direkt an turretGroup.
+  const gunPivot = new THREE.Group();
+  turretGroup.add(gunPivot);
+
   const cannonMat = new THREE.MeshLambertMaterial({ color: cfg.cannonColor });
   const cannonMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 4, 8), cannonMat);
   cannonMesh.rotation.x = Math.PI / 2;
   cannonMesh.position.set(0, 0, -2.5); // -Z = Vorderseite (Tank fährt in -Z)
   cannonMesh.castShadow = true;
-  turretGroup.add(cannonMesh);
+  gunPivot.add(cannonMesh);
 
   if (cfg.turretStyle === 'wedge') {
-    addWedgeTurretFront(turretGroup, cfg.cannonColor, cfg.bodyColor, cfg.turretSize.w, cfg.turretSize.d);
+    addWedgeTurretFront(gunPivot, cfg.cannonColor, cfg.bodyColor, cfg.turretSize.w, cfg.turretSize.d);
   } else {
-    addTurretMantlet(turretGroup, cfg.cannonColor, cfg.turretSize.d);
+    addTurretMantlet(gunPivot, cfg.cannonColor, cfg.turretSize.d);
   }
   addCommanderCupola(turretGroup, cfg.bodyColor, cfg.trackColor, cfg.turretSize.h);
-  addMuzzleDetails(turretGroup, cfg.cannonColor, cfg.muzzleStyle);
+  addMuzzleDetails(gunPivot, cfg.cannonColor, cfg.muzzleStyle);
 
   // Tarnmuster
   const patches = CAMO_PATCH_SPECS.map(spec => {
@@ -739,19 +860,19 @@ function buildTankMesh(cfg) {
   );
   rocketTubeMesh.rotation.x = Math.PI / 2;
   rocketTubeMesh.position.set(-1.6, 0.2, -1.6);
-  turretGroup.add(rocketTubeMesh);
+  gunPivot.add(rocketTubeMesh);
   // Abschlussring vorne
   const rocketRingMesh = new THREE.Mesh(
     new THREE.TorusGeometry(0.26, 0.05, 6, 12),
     rocketLauncherMat
   );
   rocketRingMesh.position.set(-1.6, 0.2, -2.95);
-  turretGroup.add(rocketRingMesh);
+  gunPivot.add(rocketRingMesh);
 
   // Unsichtbarer Mündungspunkt für Raketen-Abschuss
   const rocketMuzzleObj = new THREE.Object3D();
   rocketMuzzleObj.position.set(-1.6, 0.2, -3.1);
-  turretGroup.add(rocketMuzzleObj);
+  gunPivot.add(rocketMuzzleObj);
 
   tankGroup.position.set(0, 0, 0);
 
@@ -760,6 +881,7 @@ function buildTankMesh(cfg) {
     body: bodyMesh,
     turret: turretGroup,
     turretBox: turretBoxMesh,
+    gunPivot,
     cannon: cannonMesh,
     rocketMuzzle: rocketMuzzleObj,
     bodyMat: tankColorMat,
@@ -770,7 +892,7 @@ function buildTankMesh(cfg) {
 }
 
 const playerTankVisuals = buildTankMesh(TANK_TYPES.koenigstiger);
-const { tank, body, turret, turretBox, cannon, rocketMuzzle } = playerTankVisuals;
+const { tank, body, turret, turretBox, gunPivot, cannon, rocketMuzzle } = playerTankVisuals;
 scene.add(tank);
 
 
@@ -783,7 +905,7 @@ function createCrater(position) {
   const mat = new THREE.MeshLambertMaterial({ color: '#2a1a0a' });
   const crater = new THREE.Mesh(geo, mat);
   crater.rotation.x = -Math.PI / 2;
-  crater.position.set(position.x, 0.05, position.z);
+  crater.position.set(position.x, getTerrainHeight(position.x, position.z) + 0.05, position.z);
   scene.add(crater);
   craters.push(crater);
   if (craters.length > MAX_CRATERS) {
@@ -985,9 +1107,10 @@ function destroyHouse(house) {
     });
   }
 
-  // Staubwolke
-  spawnSmoke(pos.clone().setY(bh * 0.5), 18, 4.0);
-  spawnParticles(pos.clone().setY(1), 25, 0xaaaaaa, 7, 2.5, 4, 0.25);
+  // Staubwolke (Haus-Grundhöhe berücksichtigen, damit sie auf Hügeln nicht im Boden hängt)
+  const houseGroundY = pos.y - bh / 2;
+  spawnSmoke(pos.clone(), 18, 4.0);
+  spawnParticles(pos.clone().setY(houseGroundY + 1), 25, 0xaaaaaa, 7, 2.5, 4, 0.25);
 
   const dist = pos.distanceTo(tank.position);
   playSound('building_collapse', dist);
@@ -1003,6 +1126,9 @@ function applyHoleDamage(house) {
   const localX = tank.position.x - house.mesh.position.x;
   const localZ = tank.position.z - house.mesh.position.z;
   const isXFace = Math.abs(localX) / (house.bw / 2) > Math.abs(localZ) / (house.bd / 2);
+  // Haus-Grundhöhe (Boden unter dem Haus) statt fester Werte, damit Löcher
+  // und Staub auf Hügeln auf der richtigen Höhe erscheinen.
+  const houseGroundY = house.mesh.position.y - house.bh / 2;
 
   const holeMat = new THREE.MeshLambertMaterial({ color: '#080808', side: THREE.DoubleSide });
   let holeMesh;
@@ -1017,7 +1143,7 @@ function applyHoleDamage(house) {
     holeMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.5, 4.5), holeMat);
     holeMesh.position.set(
       house.mesh.position.x + wallSign * (house.bw / 2 + 0.05),
-      1.75,
+      houseGroundY + 1.75,
       entryZ
     );
   } else {
@@ -1030,7 +1156,7 @@ function applyHoleDamage(house) {
     holeMesh = new THREE.Mesh(new THREE.BoxGeometry(4.5, 3.5, 0.5), holeMat);
     holeMesh.position.set(
       entryX,
-      1.75,
+      houseGroundY + 1.75,
       house.mesh.position.z + wallSign * (house.bd / 2 + 0.05)
     );
   }
@@ -1038,8 +1164,8 @@ function applyHoleDamage(house) {
   scene.add(holeMesh);
   house.holeMesh = holeMesh;
 
-  spawnParticles(house.mesh.position.clone().setY(1.5), 12, 0x999999, 5, 1.5, 9.8, 0.35);
-  spawnSmoke(house.mesh.position.clone().setY(1.5), 5, 2.5);
+  spawnParticles(house.mesh.position.clone().setY(houseGroundY + 1.5), 12, 0x999999, 5, 1.5, 9.8, 0.35);
+  spawnSmoke(house.mesh.position.clone().setY(houseGroundY + 1.5), 5, 2.5);
 }
 
 function checkTankHouseCollisions(dt) {
@@ -1177,14 +1303,15 @@ function updateProjectiles(dt) {
       spawnParticles(exhaustPos, 1, 0xaaaaaa, 0.4, 1.0, 0.5, 0.22);
     }
 
-    // Boden
-    if (p.mesh.position.y <= 0) {
+    // Boden (folgt der Hügel-Höhe statt einer festen y=0-Ebene)
+    const groundYHere = getTerrainHeight(p.mesh.position.x, p.mesh.position.z);
+    if (p.mesh.position.y <= groundYHere) {
       if (p.isRocket) {
-        const impactPos = p.mesh.position.clone().setY(0.1);
+        const impactPos = p.mesh.position.clone().setY(groundYHere + 0.1);
         createRocketExplosion(impactPos, p.blastRadius);
       } else if (p.isShell) {
         const impactPos = p.mesh.position.clone();
-        impactPos.y = 0.1;
+        impactPos.y = groundYHere + 0.1;
         createCrater(impactPos);
         createExplosion(impactPos);
       }
@@ -1945,16 +2072,17 @@ function startGame(difficulty) {
 
 function createWreck(position, type) {
     const wreckColor = new THREE.MeshLambertMaterial({ color: '#1a1a1a' });
+    const groundY = getTerrainHeight(position.x, position.z);
 
     const wBody = new THREE.Mesh(new THREE.BoxGeometry(4, 0.8, 6), wreckColor);
-    wBody.position.set(position.x, 0.4, position.z);
+    wBody.position.set(position.x, groundY + 0.4, position.z);
     wBody.rotation.y = Math.random() * Math.PI * 0.3;
     scene.add(wBody);
 
     const wTurret = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.0, 2.5), wreckColor);
     wTurret.position.set(
         position.x + (Math.random() - 0.5) * 2,
-        0.9,
+        groundY + 0.9,
         position.z + (Math.random() - 0.5) * 2
     );
     wTurret.rotation.y = Math.random() * Math.PI;
@@ -2093,7 +2221,7 @@ function updateEnemyAI(enemy, dt) {
             if (normAngleDiff(enemy.mesh.rotation.y, targetAngle) < Math.PI * 0.5) {
                 enemy.mesh.translateZ(-enemy.speed * 2);
             }
-            enemy.mesh.position.y = 0;
+            enemy.mesh.position.y = getTerrainHeight(enemy.mesh.position.x, enemy.mesh.position.z);
         }
     } else if (enemy.state === 'angreifen') {
         // Manöver-Richtung periodisch wechseln (Umkreisen)
@@ -2135,7 +2263,7 @@ function updateEnemyAI(enemy, dt) {
                 enemy.mesh.translateZ(-enemy.speed * 2);
             }
         }
-        enemy.mesh.position.y = 0;
+        enemy.mesh.position.y = getTerrainHeight(enemy.mesh.position.x, enemy.mesh.position.z);
 
         // Turm unabhängig auf Spieler richten
         const turretWorldPos = new THREE.Vector3();
@@ -2318,10 +2446,11 @@ function buildTankPreview(canvasId, cfg) {
   return { previewScene, previewCamera, previewRenderer, tank: built.tank, resize };
 }
 
-const tankPreviews = [
-  buildTankPreview('preview-koenigstiger', TANK_TYPES.koenigstiger),
-  buildTankPreview('preview-leopard', TANK_TYPES.leopard),
-];
+const TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc'];
+
+const tankPreviews = TANK_SELECT_ORDER.map(key =>
+  buildTankPreview(`preview-${key}`, TANK_TYPES[key])
+);
 
 function animateTankPreviews() {
   previewRafId = requestAnimationFrame(animateTankPreviews);
@@ -2346,7 +2475,7 @@ function selectTank(typeKey) {
   stopTankPreviews();
 }
 
-['koenigstiger', 'leopard'].forEach(typeKey => {
+TANK_SELECT_ORDER.forEach(typeKey => {
   const btn = document.getElementById(`btn-select-${typeKey}`);
   btn.addEventListener('click', () => { resumeAudio(); selectTank(typeKey); });
   btn.addEventListener('touchend', e => { e.preventDefault(); resumeAudio(); selectTank(typeKey); }, { passive: false });
@@ -2359,6 +2488,11 @@ let   tankCurrentSpeed = 0;
 const INPUT_SMOOTH_RATE = 18; // je höher, desto direkter (weniger Trägheit)
 let smoothRotY = 0;
 let smoothTurretY = 0;
+
+// ── Kanonen-Höhenwinkel (vertikales Zielen, Phase 6) ────────────────────────
+const GUN_PITCH_MIN = -5  * Math.PI / 180; // leicht runter
+const GUN_PITCH_MAX =  20 * Math.PI / 180; // deutlich hoch
+let smoothGunPitch = 0;
 
 // ── Animation Loop ─────────────────────────────────────────────────────────
 let lastTime = performance.now();
@@ -2388,6 +2522,8 @@ function animate() {
   const _cd = new THREE.Vector3(0, 1, 0);
   _cd.transformDirection(cannon.matrixWorld);
   window.__testCannonDir = { x: _cd.x, y: _cd.y, z: _cd.z };
+  window.__testGunPitch = gunPivot.rotation.x;
+  window.__testTerrainHeight = (x, z) => getTerrainHeight(x, z);
 
   if (gamePaused) {
     renderer.render(scene, camera);
@@ -2398,6 +2534,7 @@ function animate() {
   let moveY = 0;
   let rotY  = 0;
   let turretY = 0;
+  let pitchInput = 0;
 
   if (!playerDead) {
     if (keys['w'] || keys['arrowup'])    moveY += 1;
@@ -2406,6 +2543,8 @@ function animate() {
     if (keys['d'] || keys['arrowright']) rotY  -= 1;
     if (keys['q']) turretY += 1;
     if (keys['e']) turretY -= 1;
+    if (keys['t']) pitchInput += 1;
+    if (keys['g']) pitchInput -= 1;
 
     if (joystickLeft.active) {
       moveY = -joystickLeft.y;
@@ -2413,6 +2552,7 @@ function animate() {
     }
     if (joystickRight.active) {
       turretY = -joystickRight.x;
+      pitchInput = -joystickRight.y;
     }
 
     // MG auto-fire
@@ -2442,10 +2582,18 @@ function animate() {
   smoothTurretY += (turretY - smoothTurretY) * smoothing;
 
   tank.rotateY(turnSpeed * smoothRotY);
-  tank.position.y = 0;
+  // Panzer "klebt" am Boden: Höhe folgt jeden Frame der Hügel-Höhenkarte.
+  tank.position.y = getTerrainHeight(tank.position.x, tank.position.z);
 
   // 3. Turm (im Zoom-Modus verlangsamt)
   turret.rotateY(turnSpeed * smoothTurretY * (scopeActive ? 0.04 : 1.0));
+
+  // 3b. Kanonen-Höhenwinkel (Kanone, MG & Rakete pitchen gemeinsam über gunPivot)
+  smoothGunPitch += (pitchInput - smoothGunPitch) * smoothing;
+  gunPivot.rotation.x = Math.min(
+    GUN_PITCH_MAX,
+    Math.max(GUN_PITCH_MIN, gunPivot.rotation.x + turnSpeed * smoothGunPitch * (scopeActive ? 0.04 : 1.0))
+  );
 
   // 4. Projektile
   updateProjectiles(dt);

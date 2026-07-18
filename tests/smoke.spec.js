@@ -400,3 +400,143 @@ test.describe('Phase 5 – Waffen-Anzeige', () => {
   });
 
 });
+
+// ── Phase 6 Tests ────────────────────────────────────────────────────────────
+test.describe('Phase 6 – Panzerauswahl (5 Panzer)', () => {
+
+  test('Panzerauswahl-Bildschirm zeigt alle 5 Panzer', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    for (const key of ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc']) {
+      await expect(page.locator(`#tank-card-${key}`)).toBeVisible();
+      await expect(page.locator(`#btn-select-${key}`)).toBeVisible();
+    }
+  });
+
+  test('Neue Panzer-Vorschauen rendern (Canvas nicht leer)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(800);
+
+    for (const id of ['preview-abrams', 'preview-t90', 'preview-leclerc']) {
+      const isNotBlack = await page.evaluate((canvasId) => {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
+        const tmp = document.createElement('canvas');
+        tmp.width = canvas.width;
+        tmp.height = canvas.height;
+        const ctx = tmp.getContext('2d');
+        ctx.drawImage(canvas, 0, 0);
+        const px = ctx.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+        return (px[0] + px[1] + px[2]) > 10;
+      }, id);
+      expect(isNotBlack, `${id} rendert nichts`).toBe(true);
+    }
+  });
+
+  test('T-90 ist langsam und sehr stark gepanzert (mehr HP als Königstiger)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 't90');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const hp       = await page.evaluate(() => window.__testPlayerHP);
+    const speed    = await page.evaluate(() => window.__testTankMaxSpeed);
+
+    expect(selected).toBe('t90');
+    expect(hp).toBeGreaterThan(140); // stärker gepanzert als Königstiger
+    expect(speed).toBeLessThan(0.24); // langsamer als Königstiger
+    await expect(page.locator('#tank-name')).toContainText('T-90');
+  });
+
+  test('Leclerc ist am schnellsten von allen Panzern', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'leclerc');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const speed    = await page.evaluate(() => window.__testTankMaxSpeed);
+
+    expect(selected).toBe('leclerc');
+    expect(speed).toBeGreaterThan(0.405); // schneller als Leopard 2 A8 (0.405)
+  });
+
+});
+
+test.describe('Phase 6 – Vertikales Zielen', () => {
+
+  test('Höhenwinkel steht initial auf 0', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const pitch = await page.evaluate(() => window.__testGunPitch);
+    expect(pitch).toBeCloseTo(0, 5);
+  });
+
+  test('Taste T neigt die Kanone nach oben (positiver Höhenwinkel)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.keyboard.down('t');
+    await page.waitForTimeout(600);
+    await page.keyboard.up('t');
+    await page.waitForTimeout(100);
+
+    const pitch = await page.evaluate(() => window.__testGunPitch);
+    expect(pitch).toBeGreaterThan(0);
+    expect(pitch).toBeLessThanOrEqual(20 * Math.PI / 180 + 0.01);
+  });
+
+  test('Taste G neigt die Kanone nach unten (negativer Höhenwinkel), Grenze bei -5°', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.keyboard.down('g');
+    await page.waitForTimeout(600);
+    await page.keyboard.up('g');
+    await page.waitForTimeout(100);
+
+    const pitch = await page.evaluate(() => window.__testGunPitch);
+    expect(pitch).toBeLessThan(0);
+    expect(pitch).toBeGreaterThanOrEqual(-5 * Math.PI / 180 - 0.01);
+  });
+
+});
+
+test.describe('Phase 6 – Hügel-Landschaft', () => {
+
+  test('Terrain-Höhenfunktion ist verfügbar und liefert endliche Werte', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const heights = await page.evaluate(() => ([
+      window.__testTerrainHeight(0, -30),     // Flusskanal → sollte 0 sein
+      window.__testTerrainHeight(100, 250),   // abseits von Fluss/Straßen → Hügel
+    ]));
+
+    expect(heights[0]).toBeCloseTo(0, 5);
+    expect(Number.isFinite(heights[1])).toBe(true);
+  });
+
+  test('Panzer-Y-Position folgt der Geländehöhe (kein Schweben/Versinken)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    const { tankY, terrainY } = await page.evaluate(() => {
+      const pos = window.__testTankWorldPos;
+      return { tankY: pos.y, terrainY: window.__testTerrainHeight(pos.x, pos.z) };
+    });
+
+    expect(Math.abs(tankY - terrainY)).toBeLessThan(0.01);
+  });
+
+});

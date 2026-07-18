@@ -54,6 +54,7 @@ Tankbuster/
 | Vorwärts/Rückwärts | W / S | Linker Joystick Y |
 | Drehen | A / D | Linker Joystick X |
 | Turm drehen | Q / E | Rechter Joystick X |
+| Höhenwinkel (Kanone/MG/Rakete) | T / G | Rechter Joystick Y |
 
 ---
 
