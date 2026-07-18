@@ -198,6 +198,40 @@ verhindert.
 | `__testGunPitch` | number | Aktueller Höhenwinkel `gunPivot.rotation.x` in Radiant |
 | `__testTerrainHeight` | function(x, z) → number | Bodenhöhe an Weltkoordinate (x, z) |
 | `__testBridgeXs` | number[] | X-Positionen der Brücken (= X-Positionen der Nord-Süd-Straßen) |
+| `__testTankRotation` | {x,y,z} | Aktuelle Panzer-Rotation (Pitch/Gier/Roll) in Radiant |
+
+### Bugfix Panzerketten (Nutzer-Feedback)
+
+Die alte Seitenverkleidung war eine einzelne blickdichte Box, die nur von
+y=0.45 bis 1.25 reichte – die untere Hälfte der Laufrollen (der Teil, der
+den Bodenkontakt der Kette zeigen sollte) war unbedeckt, und die Räder
+wirkten dadurch wie frei stehende Räder statt wie eine Kette. Fix:
+`addTrackBands()` fügt stattdessen ein dünnes Band **oben** (Rücklauf der
+Kette über den Laufrollen) und **unten** (Bodenkontakt, direkt am Boden)
+hinzu, das die gesamte Laufrollen-Reihe umschließt; die Laufrollen selbst
+bleiben dazwischen sichtbar – die klassische Panzerketten-Silhouette. Gilt
+für Spieler- (`buildTankMesh`) und Gegner-Panzer (`buildEnemyTank`).
+
+### Bugfix Panzer-Hangneigung (Nutzer-Feedback)
+
+Panzer folgten mit `position.y` zwar der Geländehöhe, standen aber immer
+exakt waagerecht (`rotation.x`/`rotation.z` blieben 0), unabhängig von der
+Hangneigung darunter – sichtbar schwebend auf Hügeln. Neue Funktion
+`applyTerrainTilt(mesh, yaw, halfLength, halfWidth)` tastet die
+Geländehöhe vorne/hinten und links/rechts der Panzer-Grundfläche ab
+(`halfLength=3`, `halfWidth=2`, passend zur Wannengröße 4×6) und setzt
+Pitch (`rotation.x`) und Roll (`rotation.z`) direkt aus dem Höhenunterschied.
+
+Da Yaw für den Spieler-Panzer bisher über `tank.rotateY()` (inkrementelle
+Quaternion-Rotation) inkrementiert wurde, hätte das gleichzeitige Setzen von
+Pitch/Roll über `rotation.x`/`rotation.z` zu Drift geführt (Rotationen um
+verschiedene Achsen-Referenzsysteme vermischen sich sonst). Der Spieler-Yaw
+wird jetzt in einer eigenen Zahl `tankYaw` mitgeführt und jeden Frame
+zusammen mit Pitch/Roll über `tank.rotation.set(pitch, tankYaw, roll)`
+atomar gesetzt. Gegner-Panzer setzten Yaw ohnehin schon per direkter
+Zuweisung (`enemy.mesh.rotation.y = …`), dort war keine Umstellung nötig.
+
+Gilt für Spieler- und Gegner-Panzer (nicht für Wracks/Trümmer).
 
 ### Bekannte Einschränkungen / Offene Punkte
 
