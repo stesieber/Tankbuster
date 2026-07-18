@@ -60,7 +60,11 @@ const RIVER_Z      = -30;
 const RIVER_HALF_W = 10;   // 20 Einheiten Gesamtbreite
 const SOUTH_ROAD_Z = RIVER_Z + RIVER_HALF_W + 9;   // -11
 const NORTH_ROAD_Z = RIVER_Z - RIVER_HALF_W - 9;   // -49
-const VERTICAL_ROAD_XS = [-200, 0, 200];
+// Brücken UND Nord-Süd-Verbindungsstraßen teilen sich dieselben X-Positionen,
+// damit die Straßen tatsächlich auf eine Brücke zulaufen statt querfeldein
+// an einer anderen Stelle in den Fluss zu laufen.
+const BRIDGE_XS = [-85, 10, 90];
+const VERTICAL_ROAD_XS = BRIDGE_XS;
 
 // ── Hügel-Landschaft (Höhenkarte) ───────────────────────────────────────────
 // Sanfte, überlagerte Sinuswellen statt echtem Perlin-Noise (kein zusätzliches
@@ -87,9 +91,9 @@ function distanceToFlatZones(x, z) {
 }
 
 function baseHillHeight(x, z) {
-  return 3.5 * Math.sin(x * 0.008 + 1.3) * Math.cos(z * 0.007 - 0.7)
-       + 2.0 * Math.sin(x * 0.014 - z * 0.011)
-       + 1.2 * Math.sin(z * 0.021 + x * 0.005);
+  return 10.5 * Math.sin(x * 0.008 + 1.3) * Math.cos(z * 0.007 - 0.7)
+       +  6.0 * Math.sin(x * 0.014 - z * 0.011)
+       +  3.6 * Math.sin(z * 0.021 + x * 0.005);
 }
 
 function getTerrainHeight(x, z) {
@@ -167,9 +171,7 @@ function buildBridge(bx) {
   }
 }
 
-buildBridge(-85);
-buildBridge(10);
-buildBridge(90);
+BRIDGE_XS.forEach(buildBridge);
 
 // ── Straßennetz ────────────────────────────────────────────────────────────
 const ROAD_Y    = 0.04;
@@ -202,7 +204,7 @@ for (const rx of VERTICAL_ROAD_XS) {
 }
 
 // Brücken-Zufahrten (verbinden Hauptstraße mit Brückenende)
-for (const bx of [-85, 10, 90]) {
+for (const bx of BRIDGE_XS) {
   buildRoad(bx, SOUTH_ROAD_Z, bx, RIVER_Z + BRIDGE_L / 2, 6);
   buildRoad(bx, NORTH_ROAD_Z, bx, RIVER_Z - BRIDGE_L / 2, 6);
 }
@@ -1559,7 +1561,16 @@ function updateKnob(knob, jx, jy) {
   knob.style.transform = `translate(${dx}px, ${dy}px)`;
 }
 
+// Panzerauswahl-/Start-Bildschirm liegen über dem Spiel und müssen mit dem
+// Finger scrollbar bleiben – die globalen Joystick-Handler dürfen dort weder
+// preventDefault() aufrufen noch Touches als Joystick-Eingabe kapern.
+function isBlockingOverlayVisible() {
+  return document.getElementById('tank-select-screen').style.display !== 'none'
+      || document.getElementById('start-screen').style.display !== 'none';
+}
+
 document.addEventListener('touchstart', e => {
+  if (isBlockingOverlayVisible()) return;
   resumeAudio();
   // preventDefault nur wenn kein Button berührt wird – sonst blockiert es Knopf-Klicks auf Mobile
   const hasNonButton = Array.from(e.changedTouches).some(t => t.target.tagName !== 'BUTTON');
@@ -1586,6 +1597,7 @@ document.addEventListener('touchstart', e => {
 }, { passive: false });
 
 document.addEventListener('touchmove', e => {
+  if (isBlockingOverlayVisible()) return;
   e.preventDefault();
   for (const touch of e.changedTouches) {
     let joy, knob;
@@ -1855,9 +1867,15 @@ function updateScopeCamera() {
   const cannonCenter = new THREE.Vector3();
   cannon.getWorldPosition(cannonCenter);
 
-  // Kameraposition: hinter dem Verschluss, leicht erhöht
-  const camPos = cannonCenter.clone().addScaledVector(dir, -3);
-  camPos.y += 0.2;
+  // Kameraposition: hinter dem Verschluss, deutlich über dem Turmdach.
+  // Bei nur leicht erhöhter Kamera (alte Werte: -3 / +0.2) landete die
+  // Kamera INNERHALB der Turmbox/Kommandantenkuppel – im Zoom (FOV 15°)
+  // füllte dieses nahe Geometrie-Stück den ganzen Bildschirm, sodass man
+  // die Umgebung nicht mehr sah. Der Y-Versatz muss über die höchste
+  // Turmkuppel hinausreichen (Turmhöhe/2 + Kuppel ≈ 0.96 bei der größten
+  // Turmgröße), der Z-Versatz über die Turmbox-Tiefe (±1.25..1.35) hinaus.
+  const camPos = cannonCenter.clone().addScaledVector(dir, -4.5);
+  camPos.y += 1.4;
   camera.position.copy(camPos);
 
   // Blickziel: weit vor der Mündung entlang der Schussrichtung
@@ -2524,6 +2542,7 @@ function animate() {
   window.__testCannonDir = { x: _cd.x, y: _cd.y, z: _cd.z };
   window.__testGunPitch = gunPivot.rotation.x;
   window.__testTerrainHeight = (x, z) => getTerrainHeight(x, z);
+  window.__testBridgeXs = BRIDGE_XS;
 
   if (gamePaused) {
     renderer.render(scene, camera);

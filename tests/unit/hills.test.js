@@ -9,7 +9,7 @@ const RIVER_Z = -30;
 const RIVER_HALF_W = 10;
 const SOUTH_ROAD_Z = RIVER_Z + RIVER_HALF_W + 9; // -11
 const NORTH_ROAD_Z = RIVER_Z - RIVER_HALF_W - 9; // -49
-const VERTICAL_ROAD_XS = [-200, 0, 200];
+const VERTICAL_ROAD_XS = [-85, 10, 90]; // gleiche X-Positionen wie die Brücken
 
 function smoothFalloff(dist, blendWidth) {
     if (dist <= 0) return 0;
@@ -30,9 +30,9 @@ function distanceToFlatZones(x, z) {
 }
 
 function baseHillHeight(x, z) {
-    return 3.5 * Math.sin(x * 0.008 + 1.3) * Math.cos(z * 0.007 - 0.7)
-         + 2.0 * Math.sin(x * 0.014 - z * 0.011)
-         + 1.2 * Math.sin(z * 0.021 + x * 0.005);
+    return 10.5 * Math.sin(x * 0.008 + 1.3) * Math.cos(z * 0.007 - 0.7)
+         +  6.0 * Math.sin(x * 0.014 - z * 0.011)
+         +  3.6 * Math.sin(z * 0.021 + x * 0.005);
 }
 
 function getTerrainHeight(x, z) {
@@ -80,11 +80,12 @@ test('Terrain: Nord-Süd-Verbindungsstraßen bleiben flach', () => {
 
 test('Terrain: abseits von Fluss/Straßen entstehen sanfte Hügel ungleich 0', () => {
     // Punkt weit weg von allen Flach-Zonen (Fluss bei z=-30, Straßen bei
-    // x=-200/0/200 und z=-11/-49)
-    const h = getTerrainHeight(100, 250);
+    // x=-85/10/90 und z=-11/-49)
+    const h = getTerrainHeight(250, 300);
     assert.notEqual(h, 0);
-    // "sanft" – Amplitude bleibt in einem moderaten Rahmen
-    assert.ok(Math.abs(h) < 8, `Hügelhöhe zu extrem: ${h}`);
+    // Amplitude bleibt trotz 3-facher Höhe (Nutzer-Feedback) in einem
+    // vorhersagbaren Rahmen (max. Summe der Einzelamplituden = 20.1)
+    assert.ok(Math.abs(h) < 21, `Hügelhöhe zu extrem: ${h}`);
 });
 
 test('Terrain: Höhe ist deterministisch (gleiche Koordinate → gleiche Höhe)', () => {

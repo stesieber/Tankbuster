@@ -244,7 +244,11 @@ test.describe('Touch-Steuerung', () => {
   //      sodass nur Touches ÜBER dem Joystick registriert wurden.
   test('Joystick reagiert bei Touch am unteren Joystick-Rand', async ({ page }) => {
     await page.goto('http://localhost:7777/');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
+    await page.tap('#btn-select-koenigstiger');
+    await page.waitForTimeout(200);
+    await page.tap('#btn-diff-normal');
+    await page.waitForTimeout(500);
 
     // Touch am untersten Punkt des linken Joystick-Bereichs (bottom: 40px)
     const cx = 85;
@@ -461,6 +465,34 @@ test.describe('Phase 6 – Panzerauswahl (5 Panzer)', () => {
     expect(speed).toBeGreaterThan(0.405); // schneller als Leopard 2 A8 (0.405)
   });
 
+  // REGRESSION TEST: 5 Panzer-Karten passen nicht mehr auf einen Bildschirm –
+  // die globalen Joystick-Touch-Handler riefen aber immer preventDefault()
+  // auf und verhinderten so das Scrollen der Panzerauswahl auf Mobile.
+  test('Panzerauswahl-Bildschirm blockiert Touch-Scrollen nicht mehr', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const { startPrevented, movePrevented, overflowsViewport, touchAction } = await page.evaluate(() => {
+      const el = document.getElementById('tank-select-screen');
+      const touch = new Touch({ identifier: 99, target: el, clientX: 100, clientY: 400 });
+      const evStart = new TouchEvent('touchstart', { touches: [touch], changedTouches: [touch], bubbles: true, cancelable: true });
+      document.dispatchEvent(evStart);
+      const evMove = new TouchEvent('touchmove', { touches: [touch], changedTouches: [touch], bubbles: true, cancelable: true });
+      document.dispatchEvent(evMove);
+      return {
+        startPrevented: evStart.defaultPrevented,
+        movePrevented: evMove.defaultPrevented,
+        overflowsViewport: el.scrollHeight > el.clientHeight,
+        touchAction: getComputedStyle(el).touchAction,
+      };
+    });
+
+    expect(startPrevented, 'touchstart sollte auf der Panzerauswahl nicht preventDefault() aufrufen').toBe(false);
+    expect(movePrevented, 'touchmove sollte auf der Panzerauswahl nicht preventDefault() aufrufen').toBe(false);
+    expect(overflowsViewport, '5 Panzer-Karten sollten den Bildschirm überragen (Scroll nötig)').toBe(true);
+    expect(touchAction).not.toBe('none');
+  });
+
 });
 
 test.describe('Phase 6 – Vertikales Zielen', () => {
@@ -537,6 +569,82 @@ test.describe('Phase 6 – Hügel-Landschaft', () => {
     });
 
     expect(Math.abs(tankY - terrainY)).toBeLessThan(0.01);
+  });
+
+  // REGRESSION TEST: Hügel wurden auf Nutzer-Feedback hin verdreifacht
+  // (baseHillHeight-Amplituden 3.5/2.0/1.2 → 10.5/6.0/3.6).
+  test('Hügel sind deutlich höher als die alte (~7er) Amplitude', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const maxAbsHeight = await page.evaluate(() => {
+      let max = 0;
+      // Punkte weit weg von Fluss/Straßen abtasten (Fluss z=-30, Straßen x=-85/10/90, z=-11/-49)
+      for (let x = 200; x <= 400; x += 25) {
+        for (let z = 150; z <= 400; z += 25) {
+          max = Math.max(max, Math.abs(window.__testTerrainHeight(x, z)));
+        }
+      }
+      return max;
+    });
+
+    expect(maxAbsHeight).toBeGreaterThan(10);
+  });
+
+  // REGRESSION TEST: Nord-Süd-Verbindungsstraßen liefen früher an anderen
+  // X-Positionen als die Brücken (Straßen x=-200/0/200, Brücken x=-85/10/90) –
+  // dadurch führte keine durchgehende Straße auf eine Brücke.
+  test('Verbindungsstraßen liegen auf denselben X-Positionen wie die Brücken', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const bridgeXs = await page.evaluate(() => window.__testBridgeXs);
+    expect(bridgeXs.slice().sort((a, b) => a - b)).toEqual([-85, 10, 90]);
+  });
+
+});
+
+test.describe('Phase 6 – Zielfernrohr auf Hügeln (Regression)', () => {
+
+  // REGRESSION TEST: Die alte Scope-Kameraposition (3 Einheiten hinter dem
+  // Kanonenzentrum, +0.2 Y) lag innerhalb der Turmbox/-kuppel. Im 15°-Zoom
+  // füllte diese nahe Geometrie den ganzen Bildschirm (ein einziger,
+  // nahezu einfarbiger Frame statt der Umgebung).
+  test('Scope-Ansicht zeigt Umgebung, nicht nur eine einzelne Panzer-Fläche', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.click('#btn-scope');
+    await page.waitForTimeout(300);
+
+    const { distinctColors, sampleCount } = await page.evaluate(() => {
+      const canvas = document.getElementById('gameCanvas');
+      const tmp = document.createElement('canvas');
+      tmp.width = canvas.width;
+      tmp.height = canvas.height;
+      const ctx = tmp.getContext('2d');
+      ctx.drawImage(canvas, 0, 0);
+      const colors = new Set();
+      const points = [
+        [0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8],
+        [0.5, 0.15], [0.5, 0.85], [0.15, 0.5], [0.85, 0.5],
+      ];
+      for (const [fx, fy] of points) {
+        const px = ctx.getImageData(
+          Math.floor(canvas.width * fx), Math.floor(canvas.height * fy), 1, 1
+        ).data;
+        colors.add(`${px[0]},${px[1]},${px[2]}`);
+      }
+      return { distinctColors: colors.size, sampleCount: points.length };
+    });
+
+    expect(
+      distinctColors,
+      `Nur ${distinctColors}/${sampleCount} unterschiedliche Farben im Scope – vermutlich blockiert ein Panzer-Bauteil die Sicht`
+    ).toBeGreaterThan(1);
   });
 
 });

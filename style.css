@@ -303,6 +303,11 @@ html, body {
   color: #fff;
   font-family: sans-serif;
   overflow-y: auto;
+  /* Body hat touch-action:none (fürs Spiel-Canvas) – hier explizit
+     vertikales Scrollen per Finger erlauben, sonst lässt sich die
+     Panzerauswahl auf Mobile nicht scrollen. */
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 #tank-select-title {

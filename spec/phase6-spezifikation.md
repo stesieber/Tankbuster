@@ -102,6 +102,14 @@ Kanonen-Mündungspunkt).
 
 Neuer Test-Hook: `window.__testGunPitch` (aktueller `gunPivot.rotation.x` in Radiant).
 
+**Bugfix Zielfernrohr-Kamera (Nutzer-Feedback):** `updateScopeCamera()`
+positionierte die Kamera nur 3 Einheiten hinter dem Kanonenzentrum und
+0,2 Einheiten höher – das liegt **innerhalb** der Turmbox/-kuppel. Im
+15°-Zoom füllte diese unmittelbar angrenzende Geometrie den kompletten
+Bildschirm, man sah keine Umgebung mehr. Fix: Kamera jetzt 4,5 Einheiten
+hinter dem Kanonenzentrum und 1,4 Einheiten höher (über der höchsten
+Kommandantenkuppel, siehe `CLAUDE.md` → Zielfernrohr-Kamera).
+
 ### Hügel-Landschaft
 
 Statt Raycast (Technik-Hinweis) wird eine **analytische Höhenfunktion**
@@ -110,7 +118,8 @@ ist – einfacher und günstiger als pro Frame gegen die Boden-Geometrie zu
 raycasten:
 
 - `baseHillHeight(x, z)`: drei überlagerte Sinuswellen unterschiedlicher
-  Frequenz/Amplitude (max. Amplitude ca. 6,7 Einheiten – "sanft")
+  Frequenz/Amplitude (max. Amplitude ca. 20 Einheiten – nach Nutzer-Feedback
+  auf das 3-Fache der ursprünglichen ~6,7 Einheiten angehoben)
 - `distanceToFlatZones(x, z)`: dämpft die Amplitude in einem Streifen um
   Fluss und alle Straßen (Haupt-Ost-West-Straßen, Nord-Süd-Verbindungen) mit
   `smoothstep`-Überblendung auf 0, damit Brücken/Straßen nicht im Gelände
@@ -119,6 +128,13 @@ raycasten:
 - Die Boden-`PlaneGeometry` bekommt 100×100 Segmente; `applyTerrainToGround()`
   verschiebt jeden Vertex per `getTerrainHeight()` und ruft
   `computeVertexNormals()` für korrekte Beleuchtung auf den Hügeln auf
+
+**Straßen führen jetzt tatsächlich über die Brücken** (Nutzer-Feedback):
+Die Nord-Süd-Verbindungsstraßen liefen ursprünglich bei x=-200/0/200,
+die drei Brücken aber bei x=-85/10/90 – wer der Straße folgte, landete nie
+auf einer Brücke. Beide Positionslisten sind jetzt eine gemeinsame Konstante
+(`BRIDGE_XS = [-85, 10, 90]`), sodass Brücken und Verbindungsstraßen exakt
+übereinanderliegen.
 
 **Y-Position folgt dem Gelände** (statt Raycast: direkte Auswertung derselben
 Höhenfunktion, jeden Frame neu):
@@ -163,12 +179,25 @@ können. Die 5 Karten laufen im bestehenden Flex-Wrap-Layout
 `overflow-y: auto` auf `#tank-select-screen` gescrollt (kein zusätzlicher
 Pfeil-Scroller nötig).
 
+**Bugfix Scrollen auf Mobile (Nutzer-Feedback):** Mit 5 Karten überragt
+`#tank-select-screen` auf vielen Bildschirmen die Höhe – Scrollen ist also
+nötig. Die globalen Touch-Handler für die Fahr-Joysticks (`document`-Listener
+für `touchstart`/`touchmove`) riefen aber unbedingt `preventDefault()` auf
+und kaperten jeden Touch außerhalb eines Buttons als Joystick-Eingabe, auch
+während Start-/Panzerauswahl-Bildschirm sichtbar waren. Fix:
+`isBlockingOverlayVisible()` lässt beide Handler früh zurückkehren, solange
+`#tank-select-screen` oder `#start-screen` sichtbar ist; zusätzlich bekommt
+`#tank-select-screen` `touch-action: pan-y`, da der globale `body`-Style
+(`touch-action: none`, fürs Spiel-Canvas) sonst auch natives Scrollen
+verhindert.
+
 ### Neue `window.__test*`-Hooks
 
 | Hook | Typ | Beschreibung |
 |------|-----|--------------|
 | `__testGunPitch` | number | Aktueller Höhenwinkel `gunPivot.rotation.x` in Radiant |
 | `__testTerrainHeight` | function(x, z) → number | Bodenhöhe an Weltkoordinate (x, z) |
+| `__testBridgeXs` | number[] | X-Positionen der Brücken (= X-Positionen der Nord-Süd-Straßen) |
 
 ### Bekannte Einschränkungen / Offene Punkte
 
