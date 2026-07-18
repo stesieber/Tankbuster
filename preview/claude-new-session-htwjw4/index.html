@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Tankbuster</title>
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Preview Banner -->
+  <div id="preview-banner">
+    &#9888; PREVIEW &#8211; Branch: <span id="branch-name"></span>
+    &nbsp;&#xB7;&nbsp; Commit: <span id="commit-hash"></span>
+  </div>
+
+  <!-- HUD oben links -->
+  <div id="hud">
+    <div id="tank-name">&#x1F42F; Königstiger</div>
+    <div id="hp-bar-container">
+      <div id="hp-bar"></div>
+    </div>
+    <div id="hp-text">&#x2764;&#xFE0F; HP: 100 / 100</div>
+    <div id="enemy-counter" style="color:white; font-size:1rem; margin-top:4px; text-shadow:1px 1px 3px #000; display:none;">
+      &#x1F3AF; Gegner: <span id="enemies-left">5</span> / <span id="enemies-total">5</span>
+    </div>
+  </div>
+
+  <!-- Schuss-Zähler oben rechts -->
+  <div id="shot-counter">&#x1F4A5; Schüsse: <span id="shot-count">0</span></div>
+
+  <!-- Waffen-Anzeige (welche Waffe ist gerade aktiv) -->
+  <div id="weapon-hud">
+    <div class="weapon-slot" id="weapon-slot-cannon">
+      <span class="weapon-slot-icon">&#x1F534;</span>
+      <span class="weapon-slot-label">Kanone</span>
+    </div>
+    <div class="weapon-slot" id="weapon-slot-mg">
+      <span class="weapon-slot-icon">&#x1F52B;</span>
+      <span class="weapon-slot-label">MG</span>
+    </div>
+    <div class="weapon-slot" id="weapon-slot-rocket">
+      <span class="weapon-slot-icon">&#x1F680;</span>
+      <span class="weapon-slot-label">Rakete</span>
+    </div>
+  </div>
+
+  <!-- Zielfernrohr-Overlay -->
+  <div id="scope"></div>
+
+  <!-- Canvas -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Touch-Joystick links -->
+  <div id="joystick-left-base" class="joystick-base">
+    <div id="joystick-left-knob" class="joystick-knob"></div>
+  </div>
+
+  <!-- Touch-Joystick rechts -->
+  <div id="joystick-right-base" class="joystick-base">
+    <div id="joystick-right-knob" class="joystick-knob"></div>
+  </div>
+
+  <!-- Panzerauswahl-Bildschirm -->
+  <div id="tank-select-screen">
+    <h1 id="tank-select-title">&#x1F51D; PANZER W&#196;HLEN</h1>
+    <div id="tank-select-cards">
+
+      <div class="tank-card" id="tank-card-koenigstiger">
+        <canvas class="tank-preview-canvas" id="preview-koenigstiger"></canvas>
+        <h2 class="tank-card-name">&#x1F42F; K&#246;nigstiger</h2>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Geschwindigkeit</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:40%"></div></div>
+          <span class="tank-stat-value">Langsam</span>
+        </div>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Panzerung</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:90%"></div></div>
+          <span class="tank-stat-value">Stark</span>
+        </div>
+        <button class="btn-select-tank" id="btn-select-koenigstiger">Ausw&#228;hlen</button>
+      </div>
+
+      <div class="tank-card" id="tank-card-leopard">
+        <canvas class="tank-preview-canvas" id="preview-leopard"></canvas>
+        <h2 class="tank-card-name">&#x1F406; Leopard 2 A8</h2>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Geschwindigkeit</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:85%"></div></div>
+          <span class="tank-stat-value">Schnell</span>
+        </div>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Panzerung</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:55%"></div></div>
+          <span class="tank-stat-value">Moderat</span>
+        </div>
+        <button class="btn-select-tank" id="btn-select-leopard">Ausw&#228;hlen</button>
+      </div>
+
+      <div class="tank-card" id="tank-card-abrams">
+        <canvas class="tank-preview-canvas" id="preview-abrams"></canvas>
+        <h2 class="tank-card-name">&#x1F985; M1A2 Abrams</h2>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Geschwindigkeit</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:60%"></div></div>
+          <span class="tank-stat-value">Mittel</span>
+        </div>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Panzerung</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:65%"></div></div>
+          <span class="tank-stat-value">Mittel</span>
+        </div>
+        <button class="btn-select-tank" id="btn-select-abrams">Ausw&#228;hlen</button>
+      </div>
+
+      <div class="tank-card" id="tank-card-t90">
+        <canvas class="tank-preview-canvas" id="preview-t90"></canvas>
+        <h2 class="tank-card-name">&#x1F43B; T-90</h2>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Geschwindigkeit</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:30%"></div></div>
+          <span class="tank-stat-value">Langsam</span>
+        </div>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Panzerung</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:95%"></div></div>
+          <span class="tank-stat-value">Sehr stark</span>
+        </div>
+        <button class="btn-select-tank" id="btn-select-t90">Ausw&#228;hlen</button>
+      </div>
+
+      <div class="tank-card" id="tank-card-leclerc">
+        <canvas class="tank-preview-canvas" id="preview-leclerc"></canvas>
+        <h2 class="tank-card-name">&#x1F413; Leclerc</h2>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Geschwindigkeit</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:98%"></div></div>
+          <span class="tank-stat-value">Sehr schnell</span>
+        </div>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Panzerung</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:50%"></div></div>
+          <span class="tank-stat-value">Moderat</span>
+        </div>
+        <button class="btn-select-tank" id="btn-select-leclerc">Ausw&#228;hlen</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Startscreen / Schwierigkeitsauswahl -->
+  <div id="start-screen" style="display:flex; position:fixed; inset:0;
+       align-items:center; justify-content:center; flex-direction:column;
+       background:rgba(0,0,0,0.78); color:white; font-family:sans-serif;
+       z-index:900; gap:14px;">
+    <div style="font-size:3.5rem; margin-bottom:4px;">&#x1F52B;</div>
+    <h1 style="font-size:2.2rem; font-weight:bold; letter-spacing:2px; text-shadow:2px 2px 8px #000; margin:0;">TANKBUSTER</h1>
+    <p style="font-size:1.1rem; opacity:0.85; margin:0 0 8px;">Schwierigkeitsgrad w&#228;hlen:</p>
+    <button id="btn-diff-einfach" style="width:220px; padding:14px 0; font-size:1.1rem; font-weight:bold;
+            background:#2e7d32; color:#fff; border:none; border-radius:10px; cursor:pointer;
+            box-shadow:0 3px 8px rgba(0,0,0,0.5);">&#x1F7E2; Einfach</button>
+    <button id="btn-diff-normal" style="width:220px; padding:14px 0; font-size:1.1rem; font-weight:bold;
+            background:#e65100; color:#fff; border:none; border-radius:10px; cursor:pointer;
+            box-shadow:0 3px 8px rgba(0,0,0,0.5);">&#x1F7E1; Normal</button>
+    <button id="btn-diff-schwer" style="width:220px; padding:14px 0; font-size:1.1rem; font-weight:bold;
+            background:#b71c1c; color:#fff; border:none; border-radius:10px; cursor:pointer;
+            box-shadow:0 3px 8px rgba(0,0,0,0.5);">&#x1F534; Schwer</button>
+  </div>
+
+  <!-- Game Overlay (Gewonnen / Verloren) -->
+  <div id="game-overlay" style="display:none; position:fixed; inset:0;
+       align-items:center; justify-content:center; flex-direction:column;
+       color:white; font-family:sans-serif; z-index:1000;">
+    <h1 id="overlay-title" style="font-size:3rem; margin-bottom:16px; text-shadow:2px 2px 6px #000;"></h1>
+    <p id="overlay-message" style="font-size:1.3rem; text-shadow:1px 1px 4px #000;"></p>
+    <button id="overlay-button" style="padding:16px 32px; font-size:1.2rem;
+            border:none; border-radius:8px; cursor:pointer; margin-top:16px;
+            background:#fff; color:#222; font-weight:bold;">
+    </button>
+  </div>
+
+  <!-- Schiess-Buttons -->
+  <button id="shoot-btn">&#x1F534; Kanone</button>
+  <button id="btn-mg">&#x1F52B; MG</button>
+  <button id="btn-scope">&#x1F52D; Zoom</button>
+  <button id="btn-rocket">&#x1F680; Rakete</button>
+
+  <script src="three.min.js"></script>
+  <script src="version.js?v=1" onerror="void(0)"></script>
+  <script src="sounds.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
