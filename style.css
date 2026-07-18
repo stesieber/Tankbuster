@@ -304,7 +304,12 @@ html, body {
      der Inhalt (z.B. 5 Panzer-Karten) überläuft. */
   justify-content: flex-start;
   gap: 14px;
-  padding: 16px 10px;
+  /* Grosszügiges Bottom-Padding (+ Safe-Area-Inset für Notch/Home-Indicator-
+     Geräte): ohne das sass die letzte Karte (z.B. Puma, als einzige Karte
+     in der letzten Zeile) direkt am unteren Viewport-Rand, dort oft von der
+     Browser-/OS-Leiste überdeckt und dadurch auf echten Mobilgeräten nicht
+     antippbar, obwohl sie im DOM/Scrollbereich technisch erreichbar war. */
+  padding: 16px 10px calc(72px + env(safe-area-inset-bottom, 0px));
   background: rgba(6, 10, 4, 0.92);
   color: #fff;
   font-family: sans-serif;

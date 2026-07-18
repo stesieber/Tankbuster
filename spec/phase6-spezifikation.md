@@ -291,7 +291,18 @@ während Start-/Panzerauswahl-Bildschirm sichtbar waren. Fix:
 (`touch-action: none`, fürs Spiel-Canvas) sonst auch natives Scrollen
 verhindert.
 
-### Neue `window.__test*`-Hooks
+**Bugfix "Puma nicht auswählbar" (Nutzer-Feedback):** Mit 7 Karten ist Puma
+die letzte, allein in ihrer Zeile – ihr Auswählen-Button lag direkt am
+unteren Rand von `#tank-select-screen` (nur 16px Padding). Auf echten
+Mobilgeräten überdeckt die Browser-/OS-Leiste (Adressleiste, Home-Indicator)
+oft genau diesen Streifen, obwohl das Element laut DOM/CSS "sichtbar" ist –
+der Button liess sich dadurch nicht antippen. In dieser Umgebung liess sich
+das mit synthetischen Klicks/Touches nicht reproduzieren (keine echte
+Browser-Chrome vorhanden), daher lässt sich die genaue Fehlerursache nicht
+zu 100 % beweisen; die Diagnose passt aber zum gemeldeten Symptom. Fix:
+`padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px))` auf
+`#tank-select-screen`, damit auch die letzte Karte deutlich oberhalb jeder
+möglichen Browser-Leiste landet.
 
 | Hook | Typ | Beschreibung |
 |------|-----|--------------|

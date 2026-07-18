@@ -493,6 +493,35 @@ test.describe('Phase 6 – Panzerauswahl (7 Fahrzeuge)', () => {
     expect(touchAction).not.toBe('none');
   });
 
+  // REGRESSION TEST (Nutzer-Feedback: "man kann den Puma nicht auswählen"):
+  // Die letzte Karte (allein in der letzten Zeile) lag direkt am unteren
+  // Viewport-Rand – auf echten Mobilgeräten oft von Browser-/OS-Leisten
+  // überdeckt und dadurch nicht antippbar, obwohl im DOM technisch
+  // "sichtbar". Prüft, dass der Auswählen-Button der letzten Karte nach dem
+  // Scrollen komplett INNERHALB des sichtbaren Viewports liegt, nicht nur
+  // dass er laut DOM/CSS existiert.
+  test('Letzte Panzer-Karte (Puma) ist nach dem Scrollen vollständig im Viewport erreichbar', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 700 }); // schmaler Mobile-Viewport
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    await page.evaluate(() => {
+      const el = document.getElementById('tank-select-screen');
+      el.scrollTop = el.scrollHeight;
+    });
+    await page.waitForTimeout(200);
+
+    const box = await page.locator('#btn-select-puma').boundingBox();
+    expect(box, 'btn-select-puma hat keine Bounding Box (unsichtbar?)').toBeTruthy();
+    expect(box.y, 'Button-Oberkante sollte nicht über dem Viewport liegen').toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height, 'Button-Unterkante sollte innerhalb der Viewport-Höhe liegen').toBeLessThanOrEqual(700);
+
+    await page.click('#btn-select-puma');
+    await page.waitForTimeout(200);
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    expect(selected).toBe('puma');
+  });
+
 });
 
 test.describe('M270 MLRS – Raketenwerfer-Fahrzeug', () => {
