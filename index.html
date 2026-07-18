@@ -30,6 +30,22 @@
   <!-- Schuss-Zähler oben rechts -->
   <div id="shot-counter">&#x1F4A5; Schüsse: <span id="shot-count">0</span></div>
 
+  <!-- Waffen-Anzeige (welche Waffe ist gerade aktiv) -->
+  <div id="weapon-hud">
+    <div class="weapon-slot" id="weapon-slot-cannon">
+      <span class="weapon-slot-icon">&#x1F534;</span>
+      <span class="weapon-slot-label">Kanone</span>
+    </div>
+    <div class="weapon-slot" id="weapon-slot-mg">
+      <span class="weapon-slot-icon">&#x1F52B;</span>
+      <span class="weapon-slot-label">MG</span>
+    </div>
+    <div class="weapon-slot" id="weapon-slot-rocket">
+      <span class="weapon-slot-icon">&#x1F680;</span>
+      <span class="weapon-slot-label">Rakete</span>
+    </div>
+  </div>
+
   <!-- Zielfernrohr-Overlay -->
   <div id="scope"></div>
 
@@ -44,6 +60,46 @@
   <!-- Touch-Joystick rechts -->
   <div id="joystick-right-base" class="joystick-base">
     <div id="joystick-right-knob" class="joystick-knob"></div>
+  </div>
+
+  <!-- Panzerauswahl-Bildschirm -->
+  <div id="tank-select-screen">
+    <h1 id="tank-select-title">&#x1F51D; PANZER W&#196;HLEN</h1>
+    <div id="tank-select-cards">
+
+      <div class="tank-card" id="tank-card-koenigstiger">
+        <canvas class="tank-preview-canvas" id="preview-koenigstiger"></canvas>
+        <h2 class="tank-card-name">&#x1F42F; K&#246;nigstiger</h2>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Geschwindigkeit</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:40%"></div></div>
+          <span class="tank-stat-value">Langsam</span>
+        </div>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Panzerung</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:90%"></div></div>
+          <span class="tank-stat-value">Stark</span>
+        </div>
+        <button class="btn-select-tank" id="btn-select-koenigstiger">Ausw&#228;hlen</button>
+      </div>
+
+      <div class="tank-card" id="tank-card-leopard">
+        <canvas class="tank-preview-canvas" id="preview-leopard"></canvas>
+        <h2 class="tank-card-name">&#x1F406; Leopard 2 A8</h2>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Geschwindigkeit</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:85%"></div></div>
+          <span class="tank-stat-value">Schnell</span>
+        </div>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Panzerung</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:55%"></div></div>
+          <span class="tank-stat-value">Moderat</span>
+        </div>
+        <button class="btn-select-tank" id="btn-select-leopard">Ausw&#228;hlen</button>
+      </div>
+
+    </div>
   </div>
 
   <!-- Startscreen / Schwierigkeitsauswahl -->

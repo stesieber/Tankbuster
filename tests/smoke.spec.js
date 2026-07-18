@@ -1,5 +1,12 @@
 const { test, expect } = require('@playwright/test');
 
+// Seit Phase 5 muss vor der Schwierigkeitsauswahl erst ein Panzer gewählt werden
+// (Panzerauswahl-Bildschirm liegt über dem Start-Screen).
+async function selectTank(page, key = 'koenigstiger') {
+  await page.click(`#btn-select-${key}`);
+  await page.waitForTimeout(200);
+}
+
 test.describe('Tankbuster Phase 1 – Smoke Tests', () => {
 
   test('Seite lädt ohne JS-Fehler', async ({ page }) => {
@@ -74,6 +81,7 @@ test.describe('Tankbuster Phase 1 – Smoke Tests', () => {
   test('Panzer reagiert auf Tastatur (W vorwärts)', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
+    await selectTank(page);
     await page.click('#btn-diff-normal');
     await page.waitForTimeout(500);
 
@@ -109,6 +117,7 @@ test.describe('Phase 3 – Gegner-System', () => {
   test('5 Gegner werden nach Spielstart erstellt', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
+    await selectTank(page);
     await page.click('#btn-diff-normal');
     await page.waitForTimeout(1000);
 
@@ -119,6 +128,7 @@ test.describe('Phase 3 – Gegner-System', () => {
   test('Gegner-Zähler zeigt 5 / 5 nach Spielstart', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
+    await selectTank(page);
     await page.click('#btn-diff-normal');
     await page.waitForTimeout(500);
 
@@ -129,6 +139,7 @@ test.describe('Phase 3 – Gegner-System', () => {
   test('Gewonnen-Overlay erscheint nach game-state-Manipulation', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
+    await selectTank(page);
     await page.click('#btn-diff-normal');
     await page.waitForTimeout(500);
 
@@ -142,6 +153,7 @@ test.describe('Phase 3 – Gegner-System', () => {
   test('Verloren-Overlay erscheint nach game-state-Manipulation', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
+    await selectTank(page);
     await page.click('#btn-diff-normal');
     await page.waitForTimeout(500);
 
@@ -155,6 +167,7 @@ test.describe('Phase 3 – Gegner-System', () => {
   test('Nochmal-spielen-Button ist sichtbar und hat korrekten Text', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
+    await selectTank(page);
     await page.click('#btn-diff-normal');
     await page.waitForTimeout(500);
 
@@ -208,6 +221,8 @@ test.describe('Touch-Steuerung', () => {
   test('Joystick-Touch bewegt den Panzer (linke Seite, nach oben)', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
+    await page.tap('#btn-select-koenigstiger');
+    await page.waitForTimeout(200);
     await page.tap('#btn-diff-normal');
     await page.waitForTimeout(500);
 
@@ -257,4 +272,131 @@ test.describe('Touch-Steuerung', () => {
       `Kanone zeigt seitwärts: dir=(${dir.x.toFixed(2)}, ${dir.y.toFixed(2)}, ${dir.z.toFixed(2)}), erwartet |z|>0.9`
     ).toBeGreaterThan(0.9);
   });
+});
+
+// ── Phase 5 Tests ────────────────────────────────────────────────────────────
+test.describe('Phase 5 – Panzerauswahl', () => {
+
+  test('Panzerauswahl-Bildschirm erscheint zuerst mit beiden Panzern', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    await expect(page.locator('#tank-select-screen')).toBeVisible();
+    await expect(page.locator('#tank-card-koenigstiger')).toBeVisible();
+    await expect(page.locator('#tank-card-leopard')).toBeVisible();
+    await expect(page.locator('#btn-select-koenigstiger')).toBeVisible();
+    await expect(page.locator('#btn-select-leopard')).toBeVisible();
+  });
+
+  test('Panzerauswahl-Vorschauen rendern (Canvas nicht leer)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(800);
+
+    for (const id of ['preview-koenigstiger', 'preview-leopard']) {
+      const isNotBlack = await page.evaluate((canvasId) => {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
+        const tmp = document.createElement('canvas');
+        tmp.width = canvas.width;
+        tmp.height = canvas.height;
+        const ctx = tmp.getContext('2d');
+        ctx.drawImage(canvas, 0, 0);
+        const px = ctx.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+        return (px[0] + px[1] + px[2]) > 10;
+      }, id);
+      expect(isNotBlack, `${id} rendert nichts`).toBe(true);
+    }
+  });
+
+  test('Auswahl Königstiger startet Spiel mit korrekten Werten (langsam, viel HP)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'koenigstiger');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const hp       = await page.evaluate(() => window.__testPlayerHP);
+    const speed    = await page.evaluate(() => window.__testTankMaxSpeed);
+
+    expect(selected).toBe('koenigstiger');
+    expect(hp).toBe(140);
+    expect(speed).toBeCloseTo(0.24, 2);
+
+    await expect(page.locator('#tank-select-screen')).toBeHidden();
+    await expect(page.locator('#tank-name')).toContainText('Königstiger');
+  });
+
+  test('Auswahl Leopard 2 A8 ist schneller aber hat weniger HP als Königstiger', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'leopard');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const hp       = await page.evaluate(() => window.__testPlayerHP);
+    const speed    = await page.evaluate(() => window.__testTankMaxSpeed);
+
+    expect(selected).toBe('leopard');
+    expect(hp).toBe(95);
+    expect(hp).toBeLessThan(140);
+    expect(speed).toBeGreaterThan(0.30); // schneller als Basis-Höchstgeschwindigkeit
+    await expect(page.locator('#tank-name')).toContainText('Leopard');
+  });
+
+});
+
+test.describe('Phase 5 – Zielfernrohr-Zoom', () => {
+
+  test('Scope-Button zoomt Kamera rein und zeigt Fadenkreuz/Vignette', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await expect(page.locator('#scope')).toBeHidden();
+
+    await page.click('#btn-scope');
+    await page.waitForTimeout(200);
+
+    await expect(page.locator('#scope')).toBeVisible();
+    await expect(page.locator('#btn-scope')).toHaveClass(/active/);
+
+    await page.click('#btn-scope');
+    await page.waitForTimeout(200);
+    await expect(page.locator('#scope')).toBeHidden();
+  });
+
+});
+
+test.describe('Phase 5 – Waffen-Anzeige', () => {
+
+  test('Kanonen-Slot zeigt Cooldown nach Schuss, andere Slots bleiben unberührt', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await expect(page.locator('#weapon-slot-cannon')).toHaveClass(/ready/);
+
+    await page.click('#shoot-btn');
+    await page.waitForTimeout(150);
+
+    await expect(page.locator('#weapon-slot-cannon')).toHaveClass(/cooldown/);
+    await expect(page.locator('#weapon-slot-rocket')).toHaveClass(/ready/);
+  });
+
+  test('MG-Slot wird beim Halten der MG-Taste aktiv', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.hover('#btn-mg');
+    await page.mouse.down();
+    await page.waitForTimeout(150);
+    await expect(page.locator('#weapon-slot-mg')).toHaveClass(/active/);
+    await page.mouse.up();
+  });
+
 });
