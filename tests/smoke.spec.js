@@ -406,13 +406,13 @@ test.describe('Phase 5 – Waffen-Anzeige', () => {
 });
 
 // ── Phase 6 Tests ────────────────────────────────────────────────────────────
-test.describe('Phase 6 – Panzerauswahl (6 Fahrzeuge)', () => {
+test.describe('Phase 6 – Panzerauswahl (7 Fahrzeuge)', () => {
 
-  test('Panzerauswahl-Bildschirm zeigt alle 6 Fahrzeuge', async ({ page }) => {
+  test('Panzerauswahl-Bildschirm zeigt alle 7 Fahrzeuge', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
 
-    for (const key of ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs']) {
+    for (const key of ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma']) {
       await expect(page.locator(`#tank-card-${key}`)).toBeVisible();
       await expect(page.locator(`#btn-select-${key}`)).toBeVisible();
     }
@@ -422,7 +422,7 @@ test.describe('Phase 6 – Panzerauswahl (6 Fahrzeuge)', () => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(800);
 
-    for (const id of ['preview-abrams', 'preview-t90', 'preview-leclerc', 'preview-mlrs']) {
+    for (const id of ['preview-abrams', 'preview-t90', 'preview-leclerc', 'preview-mlrs', 'preview-puma']) {
       const isNotBlack = await page.evaluate((canvasId) => {
         const canvas = document.getElementById(canvasId);
         if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
@@ -489,7 +489,7 @@ test.describe('Phase 6 – Panzerauswahl (6 Fahrzeuge)', () => {
 
     expect(startPrevented, 'touchstart sollte auf der Panzerauswahl nicht preventDefault() aufrufen').toBe(false);
     expect(movePrevented, 'touchmove sollte auf der Panzerauswahl nicht preventDefault() aufrufen').toBe(false);
-    expect(overflowsViewport, '5 Panzer-Karten sollten den Bildschirm überragen (Scroll nötig)').toBe(true);
+    expect(overflowsViewport, 'Die Panzer-Karten sollten den Bildschirm überragen (Scroll nötig)').toBe(true);
     expect(touchAction).not.toBe('none');
   });
 
@@ -581,6 +581,118 @@ test.describe('M270 MLRS – Raketenwerfer-Fahrzeug', () => {
 
     const charges = await page.evaluate(() => window.__testRocketCharges);
     expect(charges, 'zweiter Abschuss während laufender Salve darf keine weitere Ladung verbrauchen').toBe(2);
+  });
+
+  // REGRESSION TEST (Nutzer-Feedback): jede Salve soll aus einem anderen Rohr
+  // kommen – erste links, zweite mitte, dritte rechts, dann wieder von vorn.
+  test('Drei Rohr-Positionen (links/mitte/rechts) sind vorhanden und unterschiedlich', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+
+    const xs = await page.evaluate(() => window.__testRocketMuzzleLocalXs);
+    expect(xs, '__testRocketMuzzleLocalXs nicht gesetzt').toBeTruthy();
+    expect(xs.length).toBe(3);
+    expect(xs[0]).toBeLessThan(xs[1]); // links < Mitte
+    expect(xs[1]).toBeLessThan(xs[2]); // Mitte < rechts
+    expect(xs[1]).toBeCloseTo(0, 5);   // mittleres Rohr liegt auf der Mittelachse
+  });
+
+  // Nur die ersten 3 Salven (= die volle Start-Ladung) werden hier live
+  // durchgespielt, damit der Test nicht auf das 10s-Nachladen warten muss –
+  // das "wraps forever nach dem Nachladen"-Verhalten deckt bereits der
+  // reine Unit-Test in tests/unit/mlrs.test.js ab.
+  test('Die ersten 3 Salven feuern reihum aus links → Mitte → rechts', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    const indicesAfterEachSalvo = [];
+    for (let i = 0; i < 3; i++) {
+      await page.keyboard.press('r');
+      await page.waitForTimeout(50);
+      indicesAfterEachSalvo.push(await page.evaluate(() => window.__testRocketPodTubeIndex));
+      await page.waitForTimeout(1200); // Salve fertig abwarten, bevor die nächste ausgelöst wird
+    }
+
+    // Der Index zeigt jeweils auf das NÄCHSTE Rohr (schon weitergezählt):
+    // nach Salve 1 (links=0 verbraucht) -> 1, nach Salve 2 (Mitte) -> 2,
+    // nach Salve 3 (rechts) -> 0 (Wrap, bereit für die übernächste Salve).
+    expect(indicesAfterEachSalvo).toEqual([1, 2, 0]);
+  });
+
+});
+
+test.describe('Puma – Maschinenkanonen-Fahrzeug', () => {
+
+  test('Auswahl Puma: kein Kanone/Rakete-Button, dafür MK-Slot mit 2 Schaden/3 Schuss pro Sekunde', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'puma');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const loadout  = await page.evaluate(() => window.__testWeaponLoadout);
+
+    expect(selected).toBe('puma');
+    expect(loadout).toBe('autocannon');
+    await expect(page.locator('#tank-name')).toContainText('Puma');
+    await expect(page.locator('#shoot-btn')).toBeHidden();
+    await expect(page.locator('#btn-rocket')).toBeHidden();
+    await expect(page.locator('#weapon-slot-cannon')).toBeHidden();
+    await expect(page.locator('#weapon-slot-rocket')).toBeHidden();
+    await expect(page.locator('#btn-mg')).toBeVisible();
+    await expect(page.locator('#btn-mg')).toContainText('MK');
+    await expect(page.locator('#weapon-slot-mg')).toBeVisible();
+    await expect(page.locator('#weapon-slot-mg')).toContainText('MK');
+  });
+
+  test('Andere Panzer zeigen weiterhin "MG" statt "MK" (Puma-Auswahl ändert das Label nicht dauerhaft)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'koenigstiger');
+
+    await expect(page.locator('#btn-mg')).toContainText('MG');
+    await expect(page.locator('#shoot-btn')).toBeVisible();
+    await expect(page.locator('#btn-rocket')).toBeVisible();
+  });
+
+  test('Leertaste (Kanone) und "r" (Rakete) haben beim Puma keine Wirkung', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'puma');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    const shotsBefore = await page.evaluate(() => document.getElementById('shot-count').textContent);
+    await page.keyboard.press(' ');
+    await page.keyboard.press('r');
+    await page.waitForTimeout(200);
+    const shotsAfter = await page.evaluate(() => document.getElementById('shot-count').textContent);
+    expect(shotsAfter).toBe(shotsBefore);
+  });
+
+  test('Maschinenkanone feuert im Dauerfeuer, solange die Taste gehalten wird', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'puma');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.keyboard.down('f');
+    await page.waitForTimeout(150);
+    const activeWhileHeld = await page.evaluate(() =>
+      document.getElementById('weapon-slot-mg').classList.contains('active')
+    );
+    await page.keyboard.up('f');
+    await page.waitForTimeout(100);
+    const readyAfterRelease = await page.evaluate(() =>
+      document.getElementById('weapon-slot-mg').classList.contains('ready')
+    );
+
+    expect(activeWhileHeld, 'MK-Slot sollte während des Haltens "active" sein').toBe(true);
+    expect(readyAfterRelease, 'MK-Slot sollte nach Loslassen wieder "ready" sein').toBe(true);
   });
 
 });

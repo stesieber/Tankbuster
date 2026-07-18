@@ -168,24 +168,26 @@ Raketenwerfer und Höhenwinkel-Pivot funktionieren dadurch automatisch mit.
 | T-90 | 0.75× | 0.225 | 160 |
 | Leclerc | 1.55× | 0.465 | 90 |
 | M270 MLRS | 1.2× | 0.36 | 65 |
+| Puma | 1.35× | 0.405 | 85 |
 
 Wie in Phase 5 wird Panzerung ausschließlich als Max-HP abgebildet, kein
 separater Schadensreduktionsfaktor. Waffen-Werte (Schaden/Cooldown von
 Kanone/MG/Rakete) sind für die 5 "normalen" Panzer identisch – wie in den
-Qualitätskriterien für Phase 6 vorgesehen. Der M270 MLRS (siehe unten) ist
-davon ausgenommen: er hat gar keine Kanone/MG, nur Raketen-Salven.
+Qualitätskriterien für Phase 6 vorgesehen. M270 MLRS und Puma (siehe unten)
+sind davon ausgenommen: beide haben nur jeweils eine einzige Spezialwaffe
+(Raketen-Salven bzw. Maschinenkanone) statt Kanone+MG+Rakete.
 
-`TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs']`
+`TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma']`
 steuert sowohl die Vorschau-Erzeugung als auch die Button-Verknüpfung im
 Auswahl-Bildschirm zentral, damit neue Panzer an einer Stelle ergänzt werden
-können. Die 6 Karten laufen im bestehenden Flex-Wrap-Layout
+können. Die 7 Karten laufen im bestehenden Flex-Wrap-Layout
 (`#tank-select-cards`) um und werden bei Bedarf über das bereits vorhandene
 `overflow-y: auto` auf `#tank-select-screen` gescrollt (kein zusätzlicher
 Pfeil-Scroller nötig).
 
 ### M270 MLRS – reines Raketenwerfer-Fahrzeug (Nutzer-Feedback)
 
-Zusätzlicher, sechster Fahrzeugtyp: **nur** Raketen, keine Kanone/kein MG.
+Sechster Fahrzeugtyp: **nur** Raketen, keine Kanone/kein MG.
 Statt einer Einzelrakete pro Cooldown (wie bei den anderen 5 Fahrzeugen)
 feuert er auf Knopfdruck eine **Salve von 5 Raketen** ab. Er hat **3
 Ladungen** für je eine Salve; eine verbrauchte Ladung lädt nach 10 Sekunden
@@ -238,6 +240,45 @@ Schaden/Explosionsradius pro Einzelrakete sind identisch zur bestehenden
 Rakete (70 Schaden, Radius 8) – die Salve von 5 ist der Unterschied, nicht
 die Werte pro Rakete.
 
+**Rohr-Wechsel pro Salve (Nutzer-Feedback):** Der Raketen-Pod hat 3 Spalten
+Abschussrohre (links/mitte/rechts, siehe `addRocketPod()`). `buildTankMesh()`
+legt beim MLRS statt eines einzelnen Mündungspunkts drei an
+(`rocketMuzzles: [links, mitte, rechts]`, exakt über den drei Rohr-Spalten
+via geteilter Konstanten `ROCKET_POD_TUBE_SPACING_X`/`_MUZZLE_Z`/`_MUZZLE_Y`).
+`tryFireRocketSalvo()` führt einen Zähler `rocketPodTubeIndex` (0/1/2), der
+nach jeder Salve um 1 weiterzählt (mit Wrap `% 3`) – Salve 1 kommt komplett
+aus dem linken Rohr, Salve 2 aus der Mitte, Salve 3 rechts, danach wieder
+von vorn, für immer. `fireRocket()` akzeptiert dafür jetzt einen optionalen
+`muzzleOverride`-Parameter statt hart auf die globale `rocketMuzzle`-Variable
+zuzugreifen; ohne Override (Einzelraketen-Panzer) bleibt das Verhalten
+unverändert.
+
+### Puma – reines Maschinenkanonen-Fahrzeug (Nutzer-Feedback)
+
+Siebter Fahrzeugtyp, nach demselben Muster wie der MLRS: **nur** eine Waffe,
+diesmal eine Maschinenkanone mit **2 Schaden pro Treffer bei 3 Schuss/Sekunde**
+(`AUTOCANNON_COOLDOWN = 333`ms). Kein Kanone, kein Rakete – nur die
+Maschinenkanone, ausgelöst per Dauerfeuer wie das bestehende MG (Taste/Knopf
+halten), nicht als einzelner Feuerstoß.
+
+Statt eines eigenen vierten Waffen-Buttons wird das **bestehende MG-Bedien-
+element wiederverwendet** (`btnMG`, Taste `F`, `weapon-slot-mg`) – neues
+Label "MK" statt "MG" (`applyTankType()` schreibt Button-Text und
+`.weapon-slot-label` abhängig vom Loadout um). `animate()`s Feuer-Block
+verzweigt anhand von `currentWeaponLoadout` zwischen `fireMG()`
+(`'standard'`, 150ms/2 Schaden) und der neuen `fireAutocannon()`
+(`'autocannon'`, 333ms/2 Schaden, größeres orangenes statt gelbes Geschoss).
+Kanone- und Raketen-Button/-Slots werden wie beim MLRS ausgeblendet.
+
+Visuell bekommt der Puma über `addAutocannonBarrels()` ein kompaktes
+Doppelrohr (zwei dünne parallele Rohre + Gehäuse) am `gunPivot` statt Kanone
+oder Raketen-Pod – neigt sich ebenfalls mit dem Höhenwinkel.
+
+`currentWeaponLoadout` kennt jetzt drei Werte: `'standard'`, `'mlrs'`,
+`'autocannon'`. Alle Button-/Slot-Sichtbarkeits-Checks in `applyTankType()`
+wurden entsprechend auf `hasCannon`/`hasRocket`/`hasMgSlot`-Flags umgestellt,
+statt einzeln pro Loadout zu verzweigen.
+
 **Bugfix Scrollen auf Mobile (Nutzer-Feedback):** Mit 5 Karten überragt
 `#tank-select-screen` auf vielen Bildschirmen die Höhe – Scrollen ist also
 nötig. Die globalen Touch-Handler für die Fahr-Joysticks (`document`-Listener
@@ -258,9 +299,11 @@ verhindert.
 | `__testTerrainHeight` | function(x, z) → number | Bodenhöhe an Weltkoordinate (x, z) |
 | `__testBridgeXs` | number[] | X-Positionen der Brücken (= X-Positionen der Nord-Süd-Straßen) |
 | `__testTankRotation` | {x,y,z} | Aktuelle Panzer-Rotation (Pitch/Gier/Roll) in Radiant |
-| `__testWeaponLoadout` | 'standard' \| 'mlrs' | Waffen-Ausstattung des gewählten Fahrzeugs |
+| `__testWeaponLoadout` | 'standard' \| 'mlrs' \| 'autocannon' | Waffen-Ausstattung des gewählten Fahrzeugs |
 | `__testRocketCharges` | number | Verbleibende Salven-Ladungen des MLRS (0–3) |
 | `__testRocketSalvoFiring` | boolean | Ob gerade eine 5er-Salve läuft (Feuersperre) |
+| `__testRocketPodTubeIndex` | number | Index (0/1/2) des Rohrs, aus dem die NÄCHSTE Salve kommt |
+| `__testRocketMuzzleLocalXs` | number[] \| null | Lokale X-Positionen der 3 Rohr-Mündungen (nur MLRS, sonst null) |
 
 ### Bugfix Panzerketten (Nutzer-Feedback)
 

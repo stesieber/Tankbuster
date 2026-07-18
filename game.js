@@ -619,6 +619,27 @@ const TANK_TYPES = {
     muzzleStyle: 'sleeve',   // ungenutzt (kein Kanonenrohr)
     turretStyle: 'wedge',    // ungenutzt (Raketen-Pod statt Mantlet/Wedge-Front)
   },
+  puma: {
+    key: 'puma',
+    weaponLoadout: 'autocannon', // nur Maschinenkanone (Dauerfeuer), kein Kanone/keine Rakete
+    label: 'Puma',
+    icon: '🔫',
+    bodyColor: '#5c6152',
+    cannonColor: '#33352a',
+    trackColor: '#242424',
+    camoColors: ['#4c5040', '#6e7260', '#2c2e22', '#83866c'],
+    bodySize: { w: 3.9, h: 1.3, d: 6.1 },
+    turretSize: { w: 2.1, h: 0.85, d: 2.0 },
+    speedFactor: 1.35,
+    maxHP: 85,
+    speedLabel: 'Schnell',
+    armorLabel: 'Moderat',
+    speedPct: 82,
+    armorPct: 45,
+    wheelStyle: 'modern',
+    muzzleStyle: 'sleeve',   // ungenutzt (Doppelrohr statt Kanone)
+    turretStyle: 'wedge',    // ungenutzt (Doppelrohr statt Mantlet/Wedge-Front)
+  },
 };
 
 // ── Tarnmuster-Layout (relativ, wird pro Panzer-Typ eingefärbt) ─────────────
@@ -856,6 +877,13 @@ function addMuzzleDetails(turretGroup, cannonColor, style) {
 // Mehrfach-Raketenwerfer-Pod (M270 MLRS): Rahmen + Bündel kurzer Abschussrohre
 // anstelle einer Kanone. Sitzt am gunPivot, neigt sich also mit dem
 // Höhenwinkel wie die Kanone bei den anderen Panzern.
+// Geteilte Geometrie-Konstanten mit den drei zyklischen Mündungspunkten
+// (buildTankMesh) – links/mitte/rechts müssen exakt über den drei
+// Rohr-Spalten liegen.
+const ROCKET_POD_TUBE_SPACING_X = 0.52;
+const ROCKET_POD_MUZZLE_Z = -3.9;
+const ROCKET_POD_MUZZLE_Y = 0.1;
+
 function addRocketPod(gunPivot, accentColor) {
   const frameMat = new THREE.MeshLambertMaterial({ color: '#3a3a3a' });
   const tubeMat  = new THREE.MeshLambertMaterial({ color: '#1c1c1c' });
@@ -871,18 +899,39 @@ function addRocketPod(gunPivot, accentColor) {
   gunPivot.add(trim);
 
   const cols = 3, rows = 2;
-  const spacingX = 0.52, spacingY = 0.44;
+  const spacingY = 0.44;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 2.6, 10), tubeMat);
       tube.rotation.x = Math.PI / 2;
-      const x = (c - (cols - 1) / 2) * spacingX;
+      const x = (c - (cols - 1) / 2) * ROCKET_POD_TUBE_SPACING_X;
       const y = 0.1 + (r - (rows - 1) / 2) * spacingY;
       tube.position.set(x, y, -2.6);
       tube.castShadow = true;
       gunPivot.add(tube);
     }
   }
+}
+
+// Zwillings-Maschinenkanone (z.B. Schützenpanzer-Stil): dünnes Doppelrohr
+// statt einer einzelnen MBT-Kanone, am gunPivot – neigt sich also mit dem
+// Höhenwinkel wie die Kanone bei den anderen Panzern.
+function addAutocannonBarrels(gunPivot, barrelColor) {
+  const barrelMat = new THREE.MeshLambertMaterial({ color: barrelColor });
+  const receiverMat = new THREE.MeshLambertMaterial({ color: '#2c2c2c' });
+
+  const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 1.2), receiverMat);
+  receiver.position.set(0, 0.05, -1.0);
+  receiver.castShadow = true;
+  gunPivot.add(receiver);
+
+  [-0.13, 0.13].forEach(xOff => {
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.6, 8), barrelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(xOff, 0.05, -2.1);
+    barrel.castShadow = true;
+    gunPivot.add(barrel);
+  });
 }
 
 // ── Panzer-Baukasten (baut Spieler-Panzer UND Auswahl-Vorschauen) ───────────
@@ -928,28 +977,32 @@ function buildTankMesh(cfg) {
   turretGroup.add(gunPivot);
 
   const isMlrs = cfg.weaponLoadout === 'mlrs';
+  const isAutocannon = cfg.weaponLoadout === 'autocannon';
 
-  // Kanonen-Mesh bleibt IMMER vorhanden (auch beim Raketenwerfer) – überall im
-  // Code dient `cannon` als Richtungs-/Positions-Referenz (matrixWorld) für
-  // Schuss- und Zielfernrohr-Berechnungen. Beim Raketenwerfer wird sie nur
-  // unsichtbar geschaltet, die sichtbare Waffe ist stattdessen der Raketen-Pod.
+  // Kanonen-Mesh bleibt IMMER vorhanden (auch beim Raketenwerfer/Maschinen-
+  // kanonen-Panzer) – überall im Code dient `cannon` als Richtungs-/
+  // Positions-Referenz (matrixWorld) für Schuss- und Zielfernrohr-
+  // Berechnungen. Bei Fahrzeugen mit eigenem Waffenmodul wird sie nur
+  // unsichtbar geschaltet, die sichtbare Waffe ist ein separates Mesh.
   const cannonMat = new THREE.MeshLambertMaterial({ color: cfg.cannonColor });
   const cannonMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 4, 8), cannonMat);
   cannonMesh.rotation.x = Math.PI / 2;
   cannonMesh.position.set(0, 0, -2.5); // -Z = Vorderseite (Tank fährt in -Z)
   cannonMesh.castShadow = true;
-  cannonMesh.visible = !isMlrs;
+  cannonMesh.visible = !isMlrs && !isAutocannon;
   gunPivot.add(cannonMesh);
 
   if (isMlrs) {
     addRocketPod(gunPivot, cfg.cannonColor);
+  } else if (isAutocannon) {
+    addAutocannonBarrels(gunPivot, cfg.cannonColor);
   } else if (cfg.turretStyle === 'wedge') {
     addWedgeTurretFront(gunPivot, cfg.cannonColor, cfg.bodyColor, cfg.turretSize.w, cfg.turretSize.d);
   } else {
     addTurretMantlet(gunPivot, cfg.cannonColor, cfg.turretSize.d);
   }
   addCommanderCupola(turretGroup, cfg.bodyColor, cfg.trackColor, cfg.turretSize.h);
-  if (!isMlrs) addMuzzleDetails(gunPivot, cfg.cannonColor, cfg.muzzleStyle);
+  if (!isMlrs && !isAutocannon) addMuzzleDetails(gunPivot, cfg.cannonColor, cfg.muzzleStyle);
 
   // Tarnmuster
   const patches = CAMO_PATCH_SPECS.map(spec => {
@@ -959,11 +1012,24 @@ function buildTankMesh(cfg) {
   });
 
   let rocketMuzzleObj;
+  let rocketMuzzlesList = null;
   if (isMlrs) {
-    // Mündungspunkt vorne am Raketen-Pod (der Pod IST der Raketenwerfer,
-    // kein zusätzliches seitliches Einzelrohr nötig).
+    // Drei Mündungspunkte (links/mitte/rechts), exakt über den drei
+    // Rohr-Spalten des Pods – tryFireRocketSalvo() feuert jede Salve
+    // reihum aus einem anderen Rohr ab (links → mitte → rechts → links …).
+    const positions = [-ROCKET_POD_TUBE_SPACING_X, 0, ROCKET_POD_TUBE_SPACING_X];
+    rocketMuzzlesList = positions.map(x => {
+      const muzzle = new THREE.Object3D();
+      muzzle.position.set(x, ROCKET_POD_MUZZLE_Y, ROCKET_POD_MUZZLE_Z);
+      gunPivot.add(muzzle);
+      return muzzle;
+    });
+    rocketMuzzleObj = rocketMuzzlesList[1]; // Standard-/Fallback-Referenz: mittleres Rohr
+  } else if (isAutocannon) {
+    // Maschinenkanonen-Panzer hat keine Rakete – kein sichtbares Rohr, nur
+    // ein unsichtbarer Platzhalter, damit `rocketMuzzle` nie undefined ist.
     rocketMuzzleObj = new THREE.Object3D();
-    rocketMuzzleObj.position.set(0, 0.1, -3.9);
+    rocketMuzzleObj.position.set(0, 0.1, -2.5);
     gunPivot.add(rocketMuzzleObj);
   } else {
     // ── Raketenwerfer-Rohr (links am Turm) ──────────────────────────────────
@@ -999,6 +1065,7 @@ function buildTankMesh(cfg) {
     gunPivot,
     cannon: cannonMesh,
     rocketMuzzle: rocketMuzzleObj,
+    rocketMuzzles: rocketMuzzlesList,
     bodyMat: tankColorMat,
     cannonMat,
     trackMat,
@@ -1012,13 +1079,13 @@ function buildTankMesh(cfg) {
 // überall im Code per Namen (nicht per playerTankVisuals-Objekt) darauf
 // zugegriffen wird und die Referenzen bei einem Rebuild aktualisiert werden.
 let playerTankVisuals = buildTankMesh(TANK_TYPES.koenigstiger);
-let { tank, body, turret, turretBox, gunPivot, cannon, rocketMuzzle } = playerTankVisuals;
+let { tank, body, turret, turretBox, gunPivot, cannon, rocketMuzzle, rocketMuzzles } = playerTankVisuals;
 scene.add(tank);
 
 function rebuildPlayerTank(cfg) {
   scene.remove(tank);
   playerTankVisuals = buildTankMesh(cfg);
-  ({ tank, body, turret, turretBox, gunPivot, cannon, rocketMuzzle } = playerTankVisuals);
+  ({ tank, body, turret, turretBox, gunPivot, cannon, rocketMuzzle, rocketMuzzles } = playerTankVisuals);
   scene.add(tank);
 }
 
@@ -1403,6 +1470,37 @@ function fireMG() {
     alive: true,
     distanceTravelled: 0,
     maxDistance: 150,
+    damage: 2,
+    isShell: false,
+  });
+}
+
+// Maschinenkanone (Autocannon-Fahrzeug): größeres, langsameres Geschoss als
+// das MG (0.14 statt 0.08 Radius, orange statt gelb), 2 Schaden pro Treffer
+// bei 3 Schuss/Sekunde (siehe AUTOCANNON_COOLDOWN). Nutzt wie fireMG() die
+// Kanonen-Referenz für Richtung/Position.
+function fireAutocannon() {
+  const dir = new THREE.Vector3(0, -1, 0);
+  dir.transformDirection(cannon.matrixWorld).normalize();
+
+  const muzzlePos = new THREE.Vector3();
+  cannon.getWorldPosition(muzzlePos);
+  muzzlePos.addScaledVector(dir, 2);
+
+  const geo = new THREE.SphereGeometry(0.14, 6, 6);
+  const mat = new THREE.MeshLambertMaterial({ color: '#ff8c1a' });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(muzzlePos);
+  scene.add(mesh);
+
+  playMGShot();
+
+  projectiles.push({
+    mesh,
+    velocity: dir.multiplyScalar(6),
+    alive: true,
+    distanceTravelled: 0,
+    maxDistance: 200,
     damage: 2,
     isShell: false,
   });
@@ -1834,6 +1932,7 @@ const ROCKET_SALVO_STAGGER_MS = 150; // Abstand zwischen den 5 Raketen einer Sal
 let rocketCharges = ROCKET_MAX_CHARGES;
 let rocketChargeTimer = 0; // ms seit letztem Ladungsverbrauch (für Nachladen)
 let rocketSalvoFiring = false;
+let rocketPodTubeIndex = 0; // 0=links, 1=Mitte, 2=rechts – zyklisch pro Salve
 
 function updateRocketSalvoUI() {
   if (rocketSalvoFiring) {
@@ -1856,8 +1955,15 @@ function tryFireRocketSalvo() {
   rocketSalvoFiring = true;
   rocketCharges--;
   updateRocketSalvoUI();
+
+  // Jede Salve feuert komplett aus einem anderen Rohr: erste Salve links,
+  // zweite mitte, dritte rechts, dann wieder von vorn (immer im Kreis).
+  const muzzles = rocketMuzzles || [rocketMuzzle];
+  const muzzle = muzzles[rocketPodTubeIndex % muzzles.length];
+  rocketPodTubeIndex = (rocketPodTubeIndex + 1) % muzzles.length;
+
   for (let i = 0; i < ROCKET_SALVO_SIZE; i++) {
-    setTimeout(() => { if (!playerDead) fireRocket(); }, i * ROCKET_SALVO_STAGGER_MS);
+    setTimeout(() => { if (!playerDead) fireRocket(muzzle); }, i * ROCKET_SALVO_STAGGER_MS);
   }
   setTimeout(() => {
     rocketSalvoFiring = false;
@@ -1920,14 +2026,15 @@ function createRocketExplosion(position, blastRadius) {
   cameraShake(1.5, 600);
 }
 
-function fireRocket() {
+function fireRocket(muzzleOverride) {
   // Richtung = Turm-Zielrichtung (identisch mit Kanone)
   const dir = new THREE.Vector3(0, -1, 0);
   dir.transformDirection(cannon.matrixWorld).normalize();
 
-  // Startposition = Mündung des Raketenwerfer-Rohrs
+  // Startposition = Mündung des Raketenwerfer-Rohrs (beim MLRS wechselt das
+  // Rohr pro Salve reihum, siehe tryFireRocketSalvo())
   const muzzlePos = new THREE.Vector3();
-  rocketMuzzle.getWorldPosition(muzzlePos);
+  (muzzleOverride || rocketMuzzle).getWorldPosition(muzzlePos);
 
   // Raketen-Mesh
   const rktGroup = new THREE.Group();
@@ -1969,6 +2076,7 @@ function tryFireRocket() {
     tryFireRocketSalvo();
     return;
   }
+  if (currentWeaponLoadout !== 'standard') return; // Maschinenkanonen-Panzer hat keine Rakete
   const now = performance.now();
   if (now - rocketLastFired < ROCKET_COOLDOWN) return;
   rocketLastFired = now;
@@ -2001,6 +2109,10 @@ rocketBtn.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(
 const MG_COOLDOWN = 150;
 let mgLastFired = 0;
 let mgFiring = false;
+
+// ── Maschinenkanone (Autocannon-Fahrzeug): 2 Schaden, 3 Schuss/Sekunde ──────
+const AUTOCANNON_COOLDOWN = 333; // ≈ 3 Schuss/Sekunde
+let autocannonLastFired = 0;
 
 const btnMG = document.getElementById('btn-mg');
 
@@ -2573,8 +2685,9 @@ let TANK_DECEL     = BASE_TANK_DECEL;
 
 // ── Panzerauswahl ────────────────────────────────────────────────────────────
 let selectedTankType = null;
-// 'standard' = Kanone+MG+Einzel-Rakete (Königstiger, Leopard, Abrams, T-90,
-// Leclerc). 'mlrs' = nur Raketen-Salven, kein Kanone/MG (M270 MLRS).
+// 'standard'   = Kanone+MG+Einzel-Rakete (Königstiger, Leopard, Abrams, T-90, Leclerc)
+// 'mlrs'       = nur Raketen-Salven, kein Kanone/MG (M270 MLRS)
+// 'autocannon' = nur Maschinenkanone (Dauerfeuer wie MG, aber eigene Werte), kein Kanone/Rakete
 let currentWeaponLoadout = 'standard';
 
 function applyTankType(cfg) {
@@ -2591,20 +2704,35 @@ function applyTankType(cfg) {
 
   document.getElementById('tank-name').textContent = `${cfg.icon} ${cfg.label}`;
 
-  // Kanone/MG existieren beim Raketenwerfer nicht – Buttons & HUD-Slots
-  // ausblenden, statt sie wirkungslos anzeigen zu lassen.
-  const isMlrs = currentWeaponLoadout === 'mlrs';
-  shootBtn.style.display = isMlrs ? 'none' : 'flex';
-  btnMG.style.display    = isMlrs ? 'none' : 'flex';
-  weaponSlots.cannon.style.display = isMlrs ? 'none' : 'flex';
-  weaponSlots.mg.style.display     = isMlrs ? 'none' : 'flex';
+  // Jedes Spezial-Fahrzeug hat nur EINE Waffe – die jeweils anderen beiden
+  // Waffen-Buttons/HUD-Slots existieren für dieses Fahrzeug nicht und werden
+  // ausgeblendet statt wirkungslos angezeigt zu werden.
+  const hasCannon = currentWeaponLoadout === 'standard';
+  const hasRocket = currentWeaponLoadout === 'standard' || currentWeaponLoadout === 'mlrs';
+  const hasMgSlot = currentWeaponLoadout === 'standard' || currentWeaponLoadout === 'autocannon';
 
-  if (isMlrs) {
+  shootBtn.style.display  = hasCannon ? 'flex' : 'none';
+  rocketBtn.style.display = hasRocket ? 'flex' : 'none';
+  btnMG.style.display     = hasMgSlot ? 'flex' : 'none';
+  weaponSlots.cannon.style.display = shootBtn.style.display;
+  weaponSlots.rocket.style.display = rocketBtn.style.display;
+  weaponSlots.mg.style.display     = btnMG.style.display;
+
+  // Das MG-Bedienelement (Knopf halten = Dauerfeuer) wird beim Maschinen-
+  // kanonen-Panzer wiederverwendet, nur mit anderer Beschriftung/Werten.
+  const mgLabel = currentWeaponLoadout === 'autocannon' ? 'MK' : 'MG';
+  btnMG.innerHTML = `&#x1F52B; ${mgLabel}`;
+  const mgSlotLabel = weaponSlots.mg?.querySelector('.weapon-slot-label');
+  if (mgSlotLabel) mgSlotLabel.textContent = mgLabel;
+  if (hasMgSlot) setWeaponSlotState('mg', 'ready');
+
+  if (currentWeaponLoadout === 'mlrs') {
     rocketCharges = ROCKET_MAX_CHARGES;
     rocketChargeTimer = 0;
     rocketSalvoFiring = false;
+    rocketPodTubeIndex = 0;
     updateRocketSalvoUI();
-  } else {
+  } else if (hasRocket) {
     rocketBtn.disabled = false;
     rocketBtn.innerHTML = '&#x1F680; Rakete';
     setWeaponSlotState('rocket', 'ready');
@@ -2649,7 +2777,7 @@ function buildTankPreview(canvasId, cfg) {
   return { previewScene, previewCamera, previewRenderer, tank: built.tank, resize };
 }
 
-const TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs'];
+const TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma'];
 
 const tankPreviews = TANK_SELECT_ORDER.map(key =>
   buildTankPreview(`preview-${key}`, TANK_TYPES[key])
@@ -2734,6 +2862,8 @@ function animate() {
   window.__testTankRotation = { x: tank.rotation.x, y: tank.rotation.y, z: tank.rotation.z };
   window.__testRocketCharges = rocketCharges;
   window.__testRocketSalvoFiring = rocketSalvoFiring;
+  window.__testRocketPodTubeIndex = rocketPodTubeIndex;
+  window.__testRocketMuzzleLocalXs = rocketMuzzles ? rocketMuzzles.map(m => m.position.x) : null;
   window.__testTerrainHeight = (x, z) => getTerrainHeight(x, z);
   window.__testBridgeXs = BRIDGE_XS;
 
@@ -2767,14 +2897,22 @@ function animate() {
       pitchInput = -joystickRight.y;
     }
 
-    // MG auto-fire (Raketenwerfer hat kein MG)
+    // MG-Dauerfeuer (Standard-Panzer) bzw. Maschinenkanonen-Dauerfeuer
+    // (Autocannon-Fahrzeug) – gleiches Bedienelement, andere Werte.
+    // Raketenwerfer (MLRS) hat weder MG noch Maschinenkanone.
     if ((keys['f'] || mgFiring) && currentWeaponLoadout === 'standard') {
       setWeaponSlotState('mg', 'active');
       if (now - mgLastFired >= MG_COOLDOWN) {
         mgLastFired = now;
         fireMG();
       }
-    } else if (currentWeaponLoadout === 'standard') {
+    } else if ((keys['f'] || mgFiring) && currentWeaponLoadout === 'autocannon') {
+      setWeaponSlotState('mg', 'active');
+      if (now - autocannonLastFired >= AUTOCANNON_COOLDOWN) {
+        autocannonLastFired = now;
+        fireAutocannon();
+      }
+    } else if (currentWeaponLoadout === 'standard' || currentWeaponLoadout === 'autocannon') {
       setWeaponSlotState('mg', 'ready');
     }
   }
