@@ -287,3 +287,174 @@ html, body {
   cursor: not-allowed;
   transform: none;
 }
+
+/* ── Panzerauswahl-Bildschirm ──────────────────────────────────────────── */
+#tank-select-screen {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 16px 10px;
+  background: rgba(6, 10, 4, 0.92);
+  color: #fff;
+  font-family: sans-serif;
+  overflow-y: auto;
+}
+
+#tank-select-title {
+  font-size: 1.6rem;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-shadow: 2px 2px 6px #000;
+  margin: 0;
+  text-align: center;
+}
+
+#tank-select-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 720px;
+}
+
+.tank-card {
+  flex: 1 1 260px;
+  max-width: 320px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.tank-preview-canvas {
+  width: 100%;
+  height: 150px;
+  display: block;
+  border-radius: 8px;
+  background: #12160d;
+}
+
+.tank-card-name {
+  margin: 2px 0 0;
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.tank-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+}
+
+.tank-stat-label {
+  flex: 0 0 88px;
+  opacity: 0.85;
+}
+
+.stat-bar {
+  flex: 1;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stat-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4a9d3f, #8fd977);
+  border-radius: 4px;
+}
+
+.tank-stat-value {
+  flex: 0 0 60px;
+  text-align: right;
+  opacity: 0.85;
+}
+
+.btn-select-tank {
+  margin-top: 4px;
+  padding: 12px 0;
+  font-size: 1rem;
+  font-weight: bold;
+  background: #2e7d32;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5);
+}
+
+.btn-select-tank:active {
+  background: #3fa146;
+  transform: scale(0.98);
+}
+
+@media (max-width: 480px) {
+  #tank-select-title { font-size: 1.25rem; }
+  .tank-preview-canvas { height: 120px; }
+}
+
+/* ── Waffen-Anzeige (aktive Waffe) ─────────────────────────────────────── */
+#weapon-hud {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 150;
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.weapon-slot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  color: #fff;
+  font-family: sans-serif;
+  font-size: 0.7rem;
+  font-weight: bold;
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s, background 0.15s;
+  text-shadow: 1px 1px 2px #000;
+}
+
+.weapon-slot-icon {
+  font-size: 0.95rem;
+}
+
+.weapon-slot.ready {
+  opacity: 0.85;
+}
+
+.weapon-slot.active {
+  opacity: 1;
+  background: rgba(40, 120, 40, 0.55);
+  border-color: #7fdc7f;
+}
+
+.weapon-slot.cooldown {
+  opacity: 0.4;
+  background: rgba(120, 40, 40, 0.35);
+}
+
+@media (max-width: 480px) {
+  .weapon-slot-label { display: none; }
+  .weapon-slot { padding: 4px 6px; }
+}

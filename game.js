@@ -27,12 +27,23 @@ window.addEventListener('resize', () => {
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 
 // ── Lights ─────────────────────────────────────────────────────────────────
-const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+// Himmel/Boden-Aufhellung sorgt für natürlicheres Umgebungslicht als reines Ambient.
+const hemiLight = new THREE.HemisphereLight(0xbfd9ff, 0x3a3a20, 0.55);
+scene.add(hemiLight);
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.3);
 scene.add(ambient);
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-dirLight.position.set(50, 100, 50);
+const dirLight = new THREE.DirectionalLight(0xfff4e0, 1.05); // leicht warmes Sonnenlicht
+dirLight.position.set(60, 120, 40);
 dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.camera.left   = -120;
+dirLight.shadow.camera.right  =  120;
+dirLight.shadow.camera.top    =  120;
+dirLight.shadow.camera.bottom = -120;
+dirLight.shadow.camera.far    = 320;
+dirLight.shadow.bias = -0.0015;
 scene.add(dirLight);
 
 // ── Ground ─────────────────────────────────────────────────────────────────
@@ -405,90 +416,361 @@ function checkTankBushCollisions() {
   }
 }
 
-// ── Tank ───────────────────────────────────────────────────────────────────
-const tankColor = new THREE.MeshLambertMaterial({ color: '#3a5a2a' });
+// ── Tank-Typen (Phase 5: Panzerauswahl) ─────────────────────────────────────
+const TANK_TYPES = {
+  koenigstiger: {
+    key: 'koenigstiger',
+    label: 'Königstiger',
+    icon: '🐯',
+    bodyColor: '#3a5a2a',
+    cannonColor: '#2a4a1a',
+    trackColor: '#222222',
+    camoColors: ['#2d4a1e', '#5a3a1a', '#1a2e0e', '#6b4c22'],
+    bodySize: { w: 4,   h: 1.5,  d: 6 },
+    turretSize: { w: 2.5, h: 1.2, d: 2.5 },
+    speedFactor: 0.8,
+    maxHP: 140,
+    speedLabel: 'Langsam',
+    armorLabel: 'Stark',
+    speedPct: 40,
+    armorPct: 90,
+    wheelStyle: 'overlapping',  // Schachtellaufwerk (historisches Markenzeichen des Tiger II)
+    muzzleStyle: 'doubleBaffle', // 8.8cm KwK 43: zweistufige Mündungsbremse
+    turretStyle: 'roundedMantlet',
+  },
+  leopard: {
+    key: 'leopard',
+    label: 'Leopard 2 A8',
+    icon: '🐆',
+    bodyColor: '#6e7266',
+    cannonColor: '#4a4e42',
+    trackColor: '#2a2a2a',
+    camoColors: ['#565a4c', '#7a7e6c', '#3e4236', '#8f9380'],
+    bodySize: { w: 3.9, h: 1.25, d: 6.3 },
+    turretSize: { w: 2.3, h: 0.95, d: 2.6 },
+    speedFactor: 1.35,
+    maxHP: 95,
+    speedLabel: 'Schnell',
+    armorLabel: 'Moderat',
+    speedPct: 85,
+    armorPct: 55,
+    wheelStyle: 'modern',    // gleichmäßige Einzellaufrollen, kein Überlapp
+    muzzleStyle: 'sleeve',   // Glattrohr ohne Bremse, nur Wärmeschutzhülle
+    turretStyle: 'wedge',    // keilförmige Verbundpanzerung-Front (Leopard 2A5+)
+  },
+};
 
-const tank = new THREE.Group();
+// ── Tarnmuster-Layout (relativ, wird pro Panzer-Typ eingefärbt) ─────────────
+const CAMO_PATCH_SPECS = [
+  { target: 'body',   x: -1.1,  y: 0.77, z: 0.4,   w: 1.9,  h: 0.06, d: 2.6, ci: 0 },
+  { target: 'body',   x:  0.8,  y: 0.77, z: -1.2,  w: 2.2,  h: 0.06, d: 1.6, ci: 1 },
+  { target: 'body',   x: -0.2,  y: 0.77, z: 1.6,   w: 1.4,  h: 0.06, d: 1.8, ci: 2 },
+  { target: 'body',   x:  1.3,  y: 0.77, z: 1.1,   w: 1.1,  h: 0.06, d: 2.2, ci: 3 },
+  { target: 'body',   x:  2.06, y: 0.1,  z: -0.8,  w: 0.06, h: 1.0,  d: 2.4, ci: 0 },
+  { target: 'body',   x:  2.06, y: 0.0,  z: 1.4,   w: 0.06, h: 1.1,  d: 1.6, ci: 1 },
+  { target: 'body',   x: -2.06, y: 0.2,  z: 0.3,   w: 0.06, h: 1.0,  d: 2.2, ci: 2 },
+  { target: 'body',   x: -2.06, y: -0.1, z: -1.5,  w: 0.06, h: 0.9,  d: 1.8, ci: 3 },
+  { target: 'turret', x:  0.5,  y: 0.62, z: -0.4,  w: 1.1,  h: 0.06, d: 1.0, ci: 1 },
+  { target: 'turret', x: -0.6,  y: 0.62, z: 0.3,   w: 0.9,  h: 0.06, d: 1.2, ci: 0 },
+  { target: 'turret', x:  0.2,  y: 0.62, z: 0.7,   w: 1.3,  h: 0.06, d: 0.8, ci: 2 },
+];
 
-const body = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 6), tankColor);
-body.position.y = 1.0;
-body.castShadow = true;
-body.receiveShadow = true;
-tank.add(body);
-
-const trackMat = new THREE.MeshLambertMaterial({ color: '#222222' });
-[-2.3, 2.3].forEach(xOffset => {
-  const track = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 6.2), trackMat);
-  track.position.set(xOffset, 0.85, 0);
-  track.castShadow = true;
-  tank.add(track);
-});
-
-const turret = new THREE.Group();
-turret.position.set(0, 1.3, 0);
-body.add(turret);
-
-const turretBox = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.2, 2.5), tankColor);
-turretBox.castShadow = true;
-turret.add(turretBox);
-
-const cannon = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.15, 0.15, 4, 8),
-  new THREE.MeshLambertMaterial({ color: '#2a4a1a' })
-);
-cannon.rotation.x = Math.PI / 2;
-cannon.position.set(0, 0, -2.5); // -Z = Vorderseite (Tank fährt in -Z)
-cannon.castShadow = true;
-turret.add(cannon);
-
-// ── Tarnmuster ────────────────────────────────────────────────────────────
-function addCamoPatch(parent, x, y, z, w, h, d, color) {
+function addCamoPatch(parent, spec, color) {
   const m = new THREE.Mesh(
-    new THREE.BoxGeometry(w, h, d),
+    new THREE.BoxGeometry(spec.w, spec.h, spec.d),
     new THREE.MeshLambertMaterial({ color })
   );
-  m.position.set(x, y, z);
+  m.position.set(spec.x, spec.y, spec.z);
   parent.add(m);
+  return m;
 }
 
-// Flecken auf der Körper-Oberseite (y=0.77 = leicht über Fläche y=0.75)
-addCamoPatch(body, -1.1, 0.77, 0.4,  1.9, 0.06, 2.6, '#2d4a1e');
-addCamoPatch(body,  0.8, 0.77, -1.2, 2.2, 0.06, 1.6, '#5a3a1a');
-addCamoPatch(body, -0.2, 0.77,  1.6, 1.4, 0.06, 1.8, '#1a2e0e');
-addCamoPatch(body,  1.3, 0.77,  1.1, 1.1, 0.06, 2.2, '#6b4c22');
-// Flecken seitlich
-addCamoPatch(body,  2.06, 0.1, -0.8, 0.06, 1.0, 2.4, '#2d4a1e');
-addCamoPatch(body,  2.06, 0.0,  1.4, 0.06, 1.1, 1.6, '#5a3a1a');
-addCamoPatch(body, -2.06, 0.2,  0.3, 0.06, 1.0, 2.2, '#1a2e0e');
-addCamoPatch(body, -2.06, -0.1, -1.5, 0.06, 0.9, 1.8, '#6b4c22');
-// Flecken auf Turm-Oberseite (y=0.62)
-addCamoPatch(turretBox,  0.5, 0.62, -0.4, 1.1, 0.06, 1.0, '#5a3a1a');
-addCamoPatch(turretBox, -0.6, 0.62,  0.3, 0.9, 0.06, 1.2, '#2d4a1e');
-addCamoPatch(turretBox,  0.2, 0.62,  0.7, 1.3, 0.06, 0.8, '#1a2e0e');
+// ── Realistische Detail-Bauteile (von Spieler- UND Gegner-Panzern genutzt) ──
+// Reine Grundformen (keine externen Modelle), aber Laufrollen/Wanne/Mantlet/
+// Kommandantenkuppel/Mündungsbremse geben der Silhouette ein echtes Panzer-Profil
+// statt der reinen Box-Optik aus Phase 1–4.
 
-// ── Raketenwerfer-Rohr (links am Turm) ──────────────────────────────────────
-const rocketLauncherMat = new THREE.MeshLambertMaterial({ color: '#333' });
-const rocketTube = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.22, 0.22, 2.8, 8),
-  rocketLauncherMat
-);
-rocketTube.rotation.x = Math.PI / 2;
-rocketTube.position.set(-1.6, 0.2, -1.6);
-turret.add(rocketTube);
-// Abschlussring vorne
-const rocketRing = new THREE.Mesh(
-  new THREE.TorusGeometry(0.26, 0.05, 6, 12),
-  rocketLauncherMat
-);
-rocketRing.position.set(-1.6, 0.2, -2.95);
-turret.add(rocketRing);
+function makeWheelAdder(tankGroup, hubMat) {
+  // Laufrollen bewusst heller als die Kette/Nabe, damit sie sich von den
+  // dunklen Ketten absetzen und als Räder erkennbar bleiben.
+  const tireMat = new THREE.MeshLambertMaterial({ color: '#4a4a4a' });
+  return function addWheel(xOff, y, z, radius, depth) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, depth, 14), tireMat);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(xOff, y, z);
+    wheel.castShadow = true;
+    tankGroup.add(wheel);
 
-// Unsichtbarer Mündungspunkt für Raketen-Abschuss
-const rocketMuzzle = new THREE.Object3D();
-rocketMuzzle.position.set(-1.6, 0.2, -3.1);
-turret.add(rocketMuzzle);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.45, radius * 0.45, depth + 0.05, 8), hubMat);
+    hub.rotation.z = Math.PI / 2;
+    hub.position.set(xOff, y, z);
+    tankGroup.add(hub);
+  };
+}
 
-tank.position.set(0, 0, 0);
+// Moderner Laufwerk-Stil (z.B. Leopard 2): gleichmäßige Einzelrollen, kein Überlapp.
+function addRoadWheelsModern(tankGroup, hubMat, bodyDepth) {
+  const addWheel = makeWheelAdder(tankGroup, hubMat);
+  const WHEEL_COUNT = 6;
+  const zFrom = -bodyDepth / 2 + 0.7;
+  const zTo   =  bodyDepth / 2 - 0.7;
+  for (const xOff of [-2.3, 2.3]) {
+    for (let i = 0; i < WHEEL_COUNT; i++) {
+      const z = zFrom + (zTo - zFrom) * (i / (WHEEL_COUNT - 1));
+      addWheel(xOff, 0.44, z, 0.42, 0.28);
+    }
+    // Antriebsrad vorne (etwas größer/erhöht) und Leitrad hinten
+    addWheel(xOff, 0.5,  zFrom - 0.55, 0.48, 0.3);
+    addWheel(xOff, 0.48, zTo + 0.55,   0.46, 0.3);
+  }
+}
+
+// Schachtellaufwerk (Tiger II): grosse Laufrollen in zwei versetzten,
+// sich überlappenden Reihen je Seite – historisches Markenzeichen.
+function addRoadWheelsOverlapping(tankGroup, hubMat, bodyDepth) {
+  const addWheel = makeWheelAdder(tankGroup, hubMat);
+  const OUTER_COUNT = 5;
+  const INNER_COUNT = 4;
+  const zFrom = -bodyDepth / 2 + 0.75;
+  const zTo   =  bodyDepth / 2 - 0.75;
+  const radius = 0.55;
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < OUTER_COUNT; i++) {
+      const z = zFrom + (zTo - zFrom) * (i / (OUTER_COUNT - 1));
+      addWheel(side * 2.6, 0.52, z, radius, 0.3);
+    }
+    for (let i = 0; i < INNER_COUNT; i++) {
+      const z = zFrom + (zTo - zFrom) * ((i + 0.5) / OUTER_COUNT);
+      addWheel(side * 2.2, 0.52, z, radius, 0.3);
+    }
+    // Antriebsrad vorne und Leitrad hinten (auf der äußeren Reihe)
+    addWheel(side * 2.6, 0.58, zFrom - 0.6, 0.6, 0.32);
+    addWheel(side * 2.6, 0.56, zTo + 0.6,   0.58, 0.32);
+  }
+}
+
+function addRoadWheels(tankGroup, hubMat, bodyDepth, style) {
+  if (style === 'overlapping') addRoadWheelsOverlapping(tankGroup, hubMat, bodyDepth);
+  else addRoadWheelsModern(tankGroup, hubMat, bodyDepth);
+}
+
+function addGlacisPlate(bodyMesh, bodyColor, bodyWidth, bodyDepth) {
+  const glacisMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+  const glacis = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth - 0.4, 0.9, 1.4), glacisMat);
+  glacis.position.set(0, 0.35, -bodyDepth / 2 + 0.55);
+  glacis.rotation.x = -0.55; // geneigte Frontpanzerung statt Steilwand
+  glacis.castShadow = true;
+  bodyMesh.add(glacis);
+  return glacis;
+}
+
+function addEngineDeckDetail(bodyMesh, trackColor, bodyWidth, bodyDepth) {
+  const deckMat = new THREE.MeshLambertMaterial({ color: trackColor });
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth - 0.7, 0.07, 1.6), deckMat);
+  deck.position.set(0, 0.79, bodyDepth / 2 - 1.5);
+  bodyMesh.add(deck);
+}
+
+function addAntenna(bodyMesh, bodyDepth) {
+  const antennaMat = new THREE.MeshLambertMaterial({ color: '#161616' });
+  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.0, 6), antennaMat);
+  antenna.position.set(1.55, 1.6, bodyDepth / 2 - 1.0);
+  antenna.rotation.z = 0.1;
+  antenna.rotation.x = -0.05;
+  bodyMesh.add(antenna);
+}
+
+// Gerundetes Mantlet (historische Kanonenblende, z.B. Königstiger).
+function addTurretMantlet(turretGroup, cannonColor, turretDepth) {
+  const mantletMat = new THREE.MeshLambertMaterial({ color: cannonColor });
+  const mantlet = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.52, 0.7, 12), mantletMat);
+  mantlet.rotation.x = Math.PI / 2;
+  mantlet.position.set(0, -0.05, -turretDepth / 2);
+  mantlet.castShadow = true;
+  turretGroup.add(mantlet);
+  return mantlet;
+}
+
+// Keilförmige Verbundpanzerung-Front (moderne Optik, z.B. Leopard 2A5+):
+// flache, geneigte Panzerplatten statt rundem Mantlet.
+function addWedgeTurretFront(turretGroup, cannonColor, bodyColor, turretWidth, turretDepth) {
+  const mantletMat = new THREE.MeshLambertMaterial({ color: cannonColor });
+  const mantlet = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.4), mantletMat);
+  mantlet.position.set(0, -0.05, -turretDepth / 2 - 0.05);
+  mantlet.castShadow = true;
+  turretGroup.add(mantlet);
+
+  const wedgeMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+  const wedge = new THREE.Mesh(new THREE.BoxGeometry(turretWidth - 0.2, 0.5, 0.75), wedgeMat);
+  wedge.position.set(0, 0.35, -turretDepth / 2 - 0.05);
+  wedge.rotation.x = -0.45; // geneigte Verbundpanzerung-Module
+  wedge.castShadow = true;
+  turretGroup.add(wedge);
+
+  // Seitliche Schrägkanten: bewusst schmal und nah am Turmkörper positioniert,
+  // damit die gedrehte Ecke innerhalb der Turmbreite bleibt und nicht über die
+  // Wanne hinausragt.
+  const sideHalfWidth = 0.18;
+  const sideDepthHalf = 0.28;
+  const sideAngle = 0.3;
+  const cornerOffset = sideHalfWidth * Math.cos(sideAngle) + sideDepthHalf * Math.sin(sideAngle);
+  const sideCenterX = turretWidth / 2 - cornerOffset - 0.03; // 0.03 Sicherheitsabstand
+  [-1, 1].forEach(side => {
+    const sidePanel = new THREE.Mesh(
+      new THREE.BoxGeometry(sideHalfWidth * 2, 0.5, sideDepthHalf * 2),
+      wedgeMat
+    );
+    sidePanel.position.set(side * sideCenterX, 0.15, -turretDepth / 2 + 0.35);
+    sidePanel.rotation.y = side * sideAngle;
+    sidePanel.castShadow = true;
+    turretGroup.add(sidePanel);
+  });
+}
+
+function addCommanderCupola(turretGroup, bodyColor, trackColor, turretHeight) {
+  const cupolaMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+  const cupola = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.3, 10), cupolaMat);
+  cupola.position.set(0.65, turretHeight / 2 + 0.15, 0.55);
+  cupola.castShadow = true;
+  turretGroup.add(cupola);
+
+  const hatchMat = new THREE.MeshLambertMaterial({ color: trackColor });
+  const hatch = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 10), hatchMat);
+  hatch.position.set(0.65, turretHeight / 2 + 0.33, 0.4);
+  turretGroup.add(hatch);
+}
+
+// Zweistufige Mündungsbremse (z.B. 8.8cm KwK 43 des Königstiger).
+function addDoubleBaffleMuzzleBrake(turretGroup, cannonColor) {
+  const brakeMat = new THREE.MeshLambertMaterial({ color: cannonColor });
+  const stage1 = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.4, 10), brakeMat);
+  stage1.rotation.x = Math.PI / 2;
+  stage1.position.set(0, 0, -4.3);
+  turretGroup.add(stage1);
+
+  const stage2 = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.31, 0.35, 10), brakeMat);
+  stage2.rotation.x = Math.PI / 2;
+  stage2.position.set(0, 0, -4.65);
+  turretGroup.add(stage2);
+}
+
+// Wärmeschutzhülle ohne Bremse (Glattrohrkanone, z.B. Leopard 2): helle Ringe
+// auf dem Rohr, das Rohr selbst bleibt schlank bis zur Mündung.
+function addThermalSleeve(turretGroup) {
+  const bandMat = new THREE.MeshLambertMaterial({ color: '#c9c9c2' });
+  [-2.9, -3.5, -4.1].forEach(z => {
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.22, 8), bandMat);
+    band.rotation.x = Math.PI / 2;
+    band.position.set(0, 0, z);
+    turretGroup.add(band);
+  });
+}
+
+function addMuzzleDetails(turretGroup, cannonColor, style) {
+  if (style === 'doubleBaffle') addDoubleBaffleMuzzleBrake(turretGroup, cannonColor);
+  else addThermalSleeve(turretGroup);
+}
+
+// ── Panzer-Baukasten (baut Spieler-Panzer UND Auswahl-Vorschauen) ───────────
+function buildTankMesh(cfg) {
+  const tankColorMat = new THREE.MeshLambertMaterial({ color: cfg.bodyColor });
+
+  const tankGroup = new THREE.Group();
+
+  const bodyMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(cfg.bodySize.w, cfg.bodySize.h, cfg.bodySize.d),
+    tankColorMat
+  );
+  bodyMesh.position.y = 1.0;
+  bodyMesh.castShadow = true;
+  bodyMesh.receiveShadow = true;
+  tankGroup.add(bodyMesh);
+
+  const trackMat = new THREE.MeshLambertMaterial({ color: cfg.trackColor });
+  [-2.3, 2.3].forEach(xOffset => {
+    const track = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, cfg.bodySize.d + 0.2), trackMat);
+    track.position.set(xOffset, 0.85, 0);
+    track.castShadow = true;
+    tankGroup.add(track);
+  });
+  addRoadWheels(tankGroup, trackMat, cfg.bodySize.d, cfg.wheelStyle);
+  addGlacisPlate(bodyMesh, cfg.bodyColor, cfg.bodySize.w, cfg.bodySize.d);
+  addEngineDeckDetail(bodyMesh, cfg.trackColor, cfg.bodySize.w, cfg.bodySize.d);
+  addAntenna(bodyMesh, cfg.bodySize.d);
+
+  const turretGroup = new THREE.Group();
+  turretGroup.position.set(0, 1.3, 0);
+  bodyMesh.add(turretGroup);
+
+  const turretBoxMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(cfg.turretSize.w, cfg.turretSize.h, cfg.turretSize.d),
+    tankColorMat
+  );
+  turretBoxMesh.castShadow = true;
+  turretGroup.add(turretBoxMesh);
+
+  const cannonMat = new THREE.MeshLambertMaterial({ color: cfg.cannonColor });
+  const cannonMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 4, 8), cannonMat);
+  cannonMesh.rotation.x = Math.PI / 2;
+  cannonMesh.position.set(0, 0, -2.5); // -Z = Vorderseite (Tank fährt in -Z)
+  cannonMesh.castShadow = true;
+  turretGroup.add(cannonMesh);
+
+  if (cfg.turretStyle === 'wedge') {
+    addWedgeTurretFront(turretGroup, cfg.cannonColor, cfg.bodyColor, cfg.turretSize.w, cfg.turretSize.d);
+  } else {
+    addTurretMantlet(turretGroup, cfg.cannonColor, cfg.turretSize.d);
+  }
+  addCommanderCupola(turretGroup, cfg.bodyColor, cfg.trackColor, cfg.turretSize.h);
+  addMuzzleDetails(turretGroup, cfg.cannonColor, cfg.muzzleStyle);
+
+  // Tarnmuster
+  const patches = CAMO_PATCH_SPECS.map(spec => {
+    const parent = spec.target === 'body' ? bodyMesh : turretBoxMesh;
+    const mesh = addCamoPatch(parent, spec, cfg.camoColors[spec.ci]);
+    return { mesh, ci: spec.ci };
+  });
+
+  // ── Raketenwerfer-Rohr (links am Turm) ────────────────────────────────────
+  const rocketLauncherMat = new THREE.MeshLambertMaterial({ color: '#333' });
+  const rocketTubeMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.22, 0.22, 2.8, 8),
+    rocketLauncherMat
+  );
+  rocketTubeMesh.rotation.x = Math.PI / 2;
+  rocketTubeMesh.position.set(-1.6, 0.2, -1.6);
+  turretGroup.add(rocketTubeMesh);
+  // Abschlussring vorne
+  const rocketRingMesh = new THREE.Mesh(
+    new THREE.TorusGeometry(0.26, 0.05, 6, 12),
+    rocketLauncherMat
+  );
+  rocketRingMesh.position.set(-1.6, 0.2, -2.95);
+  turretGroup.add(rocketRingMesh);
+
+  // Unsichtbarer Mündungspunkt für Raketen-Abschuss
+  const rocketMuzzleObj = new THREE.Object3D();
+  rocketMuzzleObj.position.set(-1.6, 0.2, -3.1);
+  turretGroup.add(rocketMuzzleObj);
+
+  tankGroup.position.set(0, 0, 0);
+
+  return {
+    tank: tankGroup,
+    body: bodyMesh,
+    turret: turretGroup,
+    turretBox: turretBoxMesh,
+    cannon: cannonMesh,
+    rocketMuzzle: rocketMuzzleObj,
+    bodyMat: tankColorMat,
+    cannonMat,
+    trackMat,
+    patches,
+  };
+}
+
+const playerTankVisuals = buildTankMesh(TANK_TYPES.koenigstiger);
+const { tank, body, turret, turretBox, cannon, rocketMuzzle } = playerTankVisuals;
 scene.add(tank);
 
 
@@ -1027,7 +1309,7 @@ function updateProjectiles(dt) {
 
 // ── Spieler HP ─────────────────────────────────────────────────────────────
 let playerHP = 100;
-const playerMaxHP = 100;
+let playerMaxHP = 100;
 let playerDead = false;
 
 function updateHPBar() {
@@ -1138,6 +1420,11 @@ const rightKnob = document.getElementById('joystick-right-knob');
 
 const JOYSTICK_RADIUS = 50;
 const KNOB_MAX = 40;
+const JOYSTICK_DEADZONE = 0.08; // filtert Finger-Zittern nahe der Mitte, verhindert Ruckeln
+
+function applyDeadzone(value, deadzone) {
+  return Math.abs(value) < deadzone ? 0 : value;
+}
 
 function updateKnob(knob, jx, jy) {
   const dx = Math.min(Math.max(jx, -1), 1) * KNOB_MAX;
@@ -1181,8 +1468,8 @@ document.addEventListener('touchmove', e => {
 
     const dx = touch.clientX - joy.baseX;
     const dy = touch.clientY - joy.baseY;
-    joy.x = Math.min(Math.max(dx / JOYSTICK_RADIUS, -1), 1);
-    joy.y = Math.min(Math.max(dy / JOYSTICK_RADIUS, -1), 1);
+    joy.x = applyDeadzone(Math.min(Math.max(dx / JOYSTICK_RADIUS, -1), 1), JOYSTICK_DEADZONE);
+    joy.y = applyDeadzone(Math.min(Math.max(dy / JOYSTICK_RADIUS, -1), 1), JOYSTICK_DEADZONE);
     updateKnob(knob, joy.x, joy.y);
   }
 }, { passive: false });
@@ -1214,6 +1501,22 @@ function handleTouchEnd(e) {
 document.addEventListener('touchend',    handleTouchEnd, { passive: false });
 document.addEventListener('touchcancel', handleTouchEnd, { passive: false });
 
+// ── Waffen-Anzeige (aktive Waffe hervorheben) ───────────────────────────────
+const weaponSlots = {
+  cannon: document.getElementById('weapon-slot-cannon'),
+  mg:     document.getElementById('weapon-slot-mg'),
+  rocket: document.getElementById('weapon-slot-rocket'),
+};
+
+function setWeaponSlotState(name, state) {
+  const el = weaponSlots[name];
+  if (!el) return;
+  el.classList.remove('active', 'cooldown', 'ready');
+  if (state) el.classList.add(state);
+}
+
+Object.keys(weaponSlots).forEach(name => setWeaponSlotState(name, 'ready'));
+
 // ── Kanone Cooldown ────────────────────────────────────────────────────────
 const CANNON_COOLDOWN = 3000;
 let cannonLastFired = -CANNON_COOLDOWN;
@@ -1233,6 +1536,7 @@ function tryFireCannon() {
 function startCannonCooldown() {
   shootBtn.disabled = true;
   shootBtn.textContent = '⏳ 3s';
+  setWeaponSlotState('cannon', 'cooldown');
   let remaining = CANNON_COOLDOWN;
   const interval = setInterval(() => {
     remaining -= 100;
@@ -1240,6 +1544,7 @@ function startCannonCooldown() {
       clearInterval(interval);
       shootBtn.disabled = false;
       shootBtn.innerHTML = '&#x1F534; Kanone';
+      setWeaponSlotState('cannon', 'ready');
     } else {
       shootBtn.textContent = `⏳ ${(remaining / 1000).toFixed(1)}s`;
     }
@@ -1365,6 +1670,7 @@ function tryFireRocket() {
 function startRocketCooldown() {
   rocketBtn.disabled = true;
   rocketBtn.textContent = '⏳ 8s';
+  setWeaponSlotState('rocket', 'cooldown');
   let remaining = ROCKET_COOLDOWN;
   const interval = setInterval(() => {
     remaining -= 100;
@@ -1372,6 +1678,7 @@ function startRocketCooldown() {
       clearInterval(interval);
       rocketBtn.disabled = false;
       rocketBtn.innerHTML = '&#x1F680; Rakete';
+      setWeaponSlotState('rocket', 'ready');
     } else {
       rocketBtn.textContent = `⏳ ${(remaining / 1000).toFixed(1)}s`;
     }
@@ -1388,10 +1695,10 @@ let mgFiring = false;
 
 const btnMG = document.getElementById('btn-mg');
 
-btnMG.addEventListener('mousedown', () => { resumeAudio(); mgFiring = true; });
-btnMG.addEventListener('mouseup', () => { mgFiring = false; });
-btnMG.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(); mgFiring = true; }, { passive: false });
-btnMG.addEventListener('touchend', e => { e.preventDefault(); mgFiring = false; }, { passive: false });
+btnMG.addEventListener('mousedown', () => { resumeAudio(); mgFiring = true; setWeaponSlotState('mg', 'active'); });
+btnMG.addEventListener('mouseup', () => { mgFiring = false; setWeaponSlotState('mg', 'ready'); });
+btnMG.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(); mgFiring = true; setWeaponSlotState('mg', 'active'); }, { passive: false });
+btnMG.addEventListener('touchend', e => { e.preventDefault(); mgFiring = false; setWeaponSlotState('mg', 'ready'); }, { passive: false });
 
 // ── Zielfernrohr ───────────────────────────────────────────────────────────
 const scopeEl = document.getElementById('scope');
@@ -1478,6 +1785,10 @@ function buildEnemyTank(bodyColor) {
         tr.castShadow = true;
         group.add(tr);
     });
+    addRoadWheels(group, trackMat, 6, 'modern');
+    addGlacisPlate(corpus, bodyColor, 4, 6);
+    addEngineDeckDetail(corpus, '#222222', 4, 6);
+    addAntenna(corpus, 6);
 
     const turretGroup = new THREE.Group();
     turretGroup.position.set(0, 1.3, 0);
@@ -1501,6 +1812,10 @@ function buildEnemyTank(bodyColor) {
     eCannon.rotation.x = Math.PI / 2;
     eCannon.position.set(0, 0, -2.5);
     turretGroup.add(eCannon);
+
+    addTurretMantlet(turretGroup, '#222', 2.5);
+    addCommanderCupola(turretGroup, bodyColor, '#222222', 1.2);
+    addMuzzleDetails(turretGroup, '#222', 'doubleBaffle');
 
     // Tarnmuster auf Gegner-Panzer
     function ePatch(parent, x, y, z, w, h, d, col) {
@@ -1937,11 +2252,113 @@ function drawMinimap() {
 }
 
 // ── Movement constants ─────────────────────────────────────────────────────
-const TANK_MAX_SPEED = 0.30;   // 2× bisherige Höchstgeschwindigkeit
-const TANK_ACCEL     = 0.010;  // Beschleunigung pro Frame
-const TANK_DECEL     = 0.015;  // Verzögerung pro Frame
+const BASE_TANK_MAX_SPEED = 0.30;   // 2× bisherige Höchstgeschwindigkeit (Basiswert Königstiger-Referenz)
+const BASE_TANK_ACCEL     = 0.010;  // Beschleunigung pro Frame
+const BASE_TANK_DECEL     = 0.015;  // Verzögerung pro Frame
+let TANK_MAX_SPEED = BASE_TANK_MAX_SPEED;
+let TANK_ACCEL     = BASE_TANK_ACCEL;
+let TANK_DECEL     = BASE_TANK_DECEL;
+
+// ── Panzerauswahl ────────────────────────────────────────────────────────────
+let selectedTankType = null;
+
+function applyTankType(cfg) {
+  selectedTankType = cfg.key;
+
+  playerMaxHP = cfg.maxHP;
+  playerHP = cfg.maxHP;
+  updateHPBar();
+
+  TANK_MAX_SPEED = BASE_TANK_MAX_SPEED * cfg.speedFactor;
+  TANK_ACCEL     = BASE_TANK_ACCEL * cfg.speedFactor;
+  TANK_DECEL     = BASE_TANK_DECEL * cfg.speedFactor;
+
+  playerTankVisuals.bodyMat.color.set(cfg.bodyColor);
+  playerTankVisuals.cannonMat.color.set(cfg.cannonColor);
+  playerTankVisuals.trackMat.color.set(cfg.trackColor);
+  playerTankVisuals.patches.forEach(p => p.mesh.material.color.set(cfg.camoColors[p.ci]));
+
+  document.getElementById('tank-name').textContent = `${cfg.icon} ${cfg.label}`;
+
+  window.__testSelectedTank = cfg.key;
+  window.__testTankMaxSpeed = TANK_MAX_SPEED;
+}
+
+// ── Panzerauswahl-Bildschirm: rotierende 3D-Vorschauen ──────────────────────
+let previewRafId = null;
+
+function buildTankPreview(canvasId, cfg) {
+  const canvas = document.getElementById(canvasId);
+  const previewScene = new THREE.Scene();
+  previewScene.background = new THREE.Color('#12160d');
+
+  previewScene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  const previewLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  previewLight.position.set(4, 8, 6);
+  previewScene.add(previewLight);
+
+  const previewCamera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+  previewCamera.position.set(0, 3.2, 9);
+  previewCamera.lookAt(0, 1, 0);
+
+  const previewRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+  const built = buildTankMesh(cfg);
+  previewScene.add(built.tank);
+
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (w === 0 || h === 0) return;
+    previewRenderer.setSize(w, h, false);
+    previewCamera.aspect = w / h;
+    previewCamera.updateProjectionMatrix();
+  }
+
+  return { previewScene, previewCamera, previewRenderer, tank: built.tank, resize };
+}
+
+const tankPreviews = [
+  buildTankPreview('preview-koenigstiger', TANK_TYPES.koenigstiger),
+  buildTankPreview('preview-leopard', TANK_TYPES.leopard),
+];
+
+function animateTankPreviews() {
+  previewRafId = requestAnimationFrame(animateTankPreviews);
+  for (const p of tankPreviews) {
+    p.resize();
+    p.tank.rotation.y += 0.012;
+    p.previewRenderer.render(p.previewScene, p.previewCamera);
+  }
+}
+animateTankPreviews();
+
+function stopTankPreviews() {
+  if (previewRafId !== null) {
+    cancelAnimationFrame(previewRafId);
+    previewRafId = null;
+  }
+}
+
+function selectTank(typeKey) {
+  applyTankType(TANK_TYPES[typeKey]);
+  document.getElementById('tank-select-screen').style.display = 'none';
+  stopTankPreviews();
+}
+
+['koenigstiger', 'leopard'].forEach(typeKey => {
+  const btn = document.getElementById(`btn-select-${typeKey}`);
+  btn.addEventListener('click', () => { resumeAudio(); selectTank(typeKey); });
+  btn.addEventListener('touchend', e => { e.preventDefault(); resumeAudio(); selectTank(typeKey); }, { passive: false });
+});
 const turnSpeed      = 0.03;
 let   tankCurrentSpeed = 0;
+
+// Eingabe-Glättung (Drehung/Turm), damit schnelle Joystick-Richtungswechsel
+// nicht ruckartig, sondern weich ankommen.
+const INPUT_SMOOTH_RATE = 18; // je höher, desto direkter (weniger Trägheit)
+let smoothRotY = 0;
+let smoothTurretY = 0;
 
 // ── Animation Loop ─────────────────────────────────────────────────────────
 let lastTime = performance.now();
@@ -2000,10 +2417,13 @@ function animate() {
 
     // MG auto-fire
     if (keys['f'] || mgFiring) {
+      setWeaponSlotState('mg', 'active');
       if (now - mgLastFired >= MG_COOLDOWN) {
         mgLastFired = now;
         fireMG();
       }
+    } else {
+      setWeaponSlotState('mg', 'ready');
     }
   }
 
@@ -2015,11 +2435,17 @@ function animate() {
     tankCurrentSpeed = Math.max(tankCurrentSpeed - TANK_DECEL, targetSpeed);
   }
   tank.translateZ(-tankCurrentSpeed);
-  tank.rotateY(turnSpeed * rotY);
+
+  // Gedrehte Eingaben glätten (weiche Reaktion statt Ruckeln bei schnellen Richtungswechseln)
+  const smoothing = Math.min(1, INPUT_SMOOTH_RATE * dt);
+  smoothRotY    += (rotY - smoothRotY) * smoothing;
+  smoothTurretY += (turretY - smoothTurretY) * smoothing;
+
+  tank.rotateY(turnSpeed * smoothRotY);
   tank.position.y = 0;
 
   // 3. Turm (im Zoom-Modus verlangsamt)
-  turret.rotateY(turnSpeed * turretY * (scopeActive ? 0.04 : 1.0));
+  turret.rotateY(turnSpeed * smoothTurretY * (scopeActive ? 0.04 : 1.0));
 
   // 4. Projektile
   updateProjectiles(dt);
