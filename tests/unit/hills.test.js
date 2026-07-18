@@ -117,3 +117,58 @@ test('Höhenwinkel: kleine Eingabe bewegt den Winkel innerhalb der Grenzen', () 
     const pitch = clampGunPitch(0, 0.01);
     assert.ok(pitch > 0 && pitch < GUN_PITCH_MAX);
 });
+
+// ── Hangneigung (Pitch/Roll) der Panzer-Wanne ───────────────────────────────
+// 1:1 aus game.js übernommen (applyTerrainTilt), aber mit einer injizierbaren
+// Höhenfunktion statt game.js' getTerrainHeight, damit einfache, kontrollierte
+// Steigungen getestet werden können statt der echten Sinus-Hügel.
+
+function computeTilt(heightFn, x, z, yaw, halfLength, halfWidth) {
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const rx =  Math.cos(yaw), rz = -Math.sin(yaw);
+    const hAhead  = heightFn(x + fx * halfLength, z + fz * halfLength);
+    const hBehind = heightFn(x - fx * halfLength, z - fz * halfLength);
+    const hRight  = heightFn(x + rx * halfWidth,  z + rz * halfWidth);
+    const hLeft   = heightFn(x - rx * halfWidth,  z - rz * halfWidth);
+    return {
+        pitch: Math.atan2(hAhead - hBehind, halfLength * 2),
+        roll:  Math.atan2(hRight - hLeft, halfWidth * 2),
+    };
+}
+
+test('Hangneigung: flaches Gelände → Pitch und Roll bleiben 0', () => {
+    const flat = () => 0;
+    const { pitch, roll } = computeTilt(flat, 10, 10, 0, 3, 2);
+    assert.equal(pitch, 0);
+    assert.equal(roll, 0);
+});
+
+test('Hangneigung: Steigung in Fahrtrichtung (Yaw=0, +Z bergauf-Richtung) → positiver Pitch', () => {
+    // Yaw=0 → Vorwärtsrichtung ist -Z; Gelände steigt Richtung -Z (also bergauf voraus)
+    const slope = (x, z) => -z * 0.1; // je kleiner z, desto höher
+    const { pitch, roll } = computeTilt(slope, 0, 0, 0, 3, 2);
+    assert.ok(pitch > 0, `erwartet positiven Pitch (Nase hoch) bei Steigung voraus, war ${pitch}`);
+    assert.ok(Math.abs(roll) < 1e-9, `Roll sollte bei reiner Vorwärts-Steigung 0 sein, war ${roll}`);
+});
+
+test('Hangneigung: Gefälle in Fahrtrichtung → negativer Pitch', () => {
+    const slope = (x, z) => z * 0.1; // steigt Richtung +Z = hinter dem Panzer → voraus geht es bergab
+    const { pitch } = computeTilt(slope, 0, 0, 0, 3, 2);
+    assert.ok(pitch < 0, `erwartet negativen Pitch (Nase runter) bei Gefälle voraus, war ${pitch}`);
+});
+
+test('Hangneigung: seitliches Gefälle (Yaw=0) → Roll ungleich 0, Pitch bleibt 0', () => {
+    const sideSlope = (x, z) => x * 0.1; // steigt nach rechts (+X)
+    const { pitch, roll } = computeTilt(sideSlope, 0, 0, 0, 3, 2);
+    assert.ok(roll > 0, `erwartet positiven Roll (rechts hoch) bei Gefälle nach rechts, war ${roll}`);
+    assert.ok(Math.abs(pitch) < 1e-9, `Pitch sollte bei reiner Seitenneigung 0 sein, war ${pitch}`);
+});
+
+test('Hangneigung: Tastung dreht korrekt mit, wenn der Panzer um 90° gegiert hat', () => {
+    // Nach 90°-Drehung zeigt "vorwärts" jetzt in -X-Richtung; ein Gefälle
+    // entlang X sollte sich jetzt als Pitch statt Roll zeigen.
+    const sideSlope = (x, z) => x * 0.1;
+    const { pitch, roll } = computeTilt(sideSlope, 0, 0, Math.PI / 2, 3, 2);
+    assert.ok(Math.abs(pitch) > 1e-6, `erwartet Pitch ungleich 0 nach 90°-Drehung, war ${pitch}`);
+    assert.ok(Math.abs(roll) < 1e-6, `Roll sollte nach 90°-Drehung ~0 sein, war ${roll}`);
+});

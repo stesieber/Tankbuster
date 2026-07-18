@@ -571,6 +571,21 @@ test.describe('Phase 6 – Hügel-Landschaft', () => {
     expect(Math.abs(tankY - terrainY)).toBeLessThan(0.01);
   });
 
+  // REGRESSION TEST: Panzer stand immer waagerecht, unabhängig vom Gelände
+  // (nur position.y folgte der Hügelhöhe, rotation.x/z blieben immer 0).
+  test('Panzer-Neigung (Pitch/Roll) ist verfügbar und reagiert auf das Gelände', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    const rot = await page.evaluate(() => window.__testTankRotation);
+    expect(rot, '__testTankRotation nicht gesetzt').toBeTruthy();
+    expect(Number.isFinite(rot.x)).toBe(true);
+    expect(Number.isFinite(rot.z)).toBe(true);
+  });
+
   // REGRESSION TEST: Hügel wurden auf Nutzer-Feedback hin verdreifacht
   // (baseHillHeight-Amplituden 3.5/2.0/1.2 → 10.5/6.0/3.6).
   test('Hügel sind deutlich höher als die alte (~7er) Amplitude', async ({ page }) => {

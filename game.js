@@ -100,6 +100,25 @@ function getTerrainHeight(x, z) {
   return baseHillHeight(x, z) * distanceToFlatZones(x, z);
 }
 
+// Neigt einen Panzer (Pitch/Roll) passend zur Hangneigung unter seiner
+// Grundfläche, statt immer waagerecht über dem Gelände zu stehen. Tastet die
+// Geländehöhe am angenommenen vorderen/hinteren bzw. linken/rechten Rand ab
+// (halfLength/halfWidth ≈ halbe Wannenlänge/-breite) und setzt rotation.x
+// (Pitch) und rotation.z (Roll) direkt – rotation.y (Gieren) bleibt dabei
+// unverändert von diesem Aufruf und muss vom Aufrufer separat gesetzt sein.
+function applyTerrainTilt(mesh, yaw, halfLength, halfWidth) {
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw); // Vorwärtsrichtung (lokal -Z)
+  const rx =  Math.cos(yaw), rz = -Math.sin(yaw); // Rechtsrichtung (lokal +X)
+  const p = mesh.position;
+  const hAhead  = getTerrainHeight(p.x + fx * halfLength, p.z + fz * halfLength);
+  const hBehind = getTerrainHeight(p.x - fx * halfLength, p.z - fz * halfLength);
+  const hRight  = getTerrainHeight(p.x + rx * halfWidth,  p.z + rz * halfWidth);
+  const hLeft   = getTerrainHeight(p.x - rx * halfWidth,  p.z - rz * halfWidth);
+  const pitch = Math.atan2(hAhead - hBehind, halfLength * 2);
+  const roll  = Math.atan2(hRight - hLeft, halfWidth * 2);
+  mesh.rotation.set(pitch, yaw, roll);
+}
+
 function applyTerrainToGround(mesh) {
   const posAttr = mesh.geometry.attributes.position;
   for (let i = 0; i < posAttr.count; i++) {
@@ -624,6 +643,25 @@ function makeWheelAdder(tankGroup, hubMat) {
   };
 }
 
+// Durchgehendes Ketten-Band: dünner Streifen oben (Rücklauf der Kette über
+// den Laufrollen) und unten (Bodenkontakt). Erst dieses Band macht die
+// Laufrollen optisch zu einer Kette statt zu frei stehenden Rädern – vorher
+// endete die Seitenverkleidung mittig über den Rollen und deren untere
+// Hälfte (der Teil, der eigentlich die Kette am Boden zeigt) war unbedeckt.
+function addTrackBands(tankGroup, trackMat, xOff, zFrom, zTo, bottomY, topY) {
+  const bandWidth = 0.58;
+  const bandThickness = 0.1;
+  const length = zTo - zFrom;
+  const centerZ = (zFrom + zTo) / 2;
+
+  [bottomY, topY].forEach(y => {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(bandWidth, bandThickness, length), trackMat);
+    band.position.set(xOff, y, centerZ);
+    band.castShadow = true;
+    tankGroup.add(band);
+  });
+}
+
 // Moderner Laufwerk-Stil (z.B. Leopard 2): gleichmäßige Einzelrollen, kein Überlapp.
 function addRoadWheelsModern(tankGroup, hubMat, bodyDepth) {
   const addWheel = makeWheelAdder(tankGroup, hubMat);
@@ -638,6 +676,7 @@ function addRoadWheelsModern(tankGroup, hubMat, bodyDepth) {
     // Antriebsrad vorne (etwas größer/erhöht) und Leitrad hinten
     addWheel(xOff, 0.5,  zFrom - 0.55, 0.48, 0.3);
     addWheel(xOff, 0.48, zTo + 0.55,   0.46, 0.3);
+    addTrackBands(tankGroup, hubMat, xOff, zFrom - 0.9, zTo + 0.9, 0.04, 0.95);
   }
 }
 
@@ -662,6 +701,7 @@ function addRoadWheelsOverlapping(tankGroup, hubMat, bodyDepth) {
     // Antriebsrad vorne und Leitrad hinten (auf der äußeren Reihe)
     addWheel(side * 2.6, 0.58, zFrom - 0.6, 0.6, 0.32);
     addWheel(side * 2.6, 0.56, zTo + 0.6,   0.58, 0.32);
+    addTrackBands(tankGroup, hubMat, side * 2.6, zFrom - 0.95, zTo + 0.95, 0.04, 1.15);
   }
 }
 
@@ -802,13 +842,10 @@ function buildTankMesh(cfg) {
   bodyMesh.receiveShadow = true;
   tankGroup.add(bodyMesh);
 
+  // Ketten: sichtbare Laufrollen plus oben/unten umlaufendes Kettenband
+  // (addRoadWheels → addTrackBands), keine separate blickdichte Seitenwand
+  // mehr – sonst verdecken die Ketten die Laufrollen komplett.
   const trackMat = new THREE.MeshLambertMaterial({ color: cfg.trackColor });
-  [-2.3, 2.3].forEach(xOffset => {
-    const track = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, cfg.bodySize.d + 0.2), trackMat);
-    track.position.set(xOffset, 0.85, 0);
-    track.castShadow = true;
-    tankGroup.add(track);
-  });
   addRoadWheels(tankGroup, trackMat, cfg.bodySize.d, cfg.wheelStyle);
   addGlacisPlate(bodyMesh, cfg.bodyColor, cfg.bodySize.w, cfg.bodySize.d);
   addEngineDeckDetail(bodyMesh, cfg.trackColor, cfg.bodySize.w, cfg.bodySize.d);
@@ -1924,12 +1961,6 @@ function buildEnemyTank(bodyColor) {
     group.add(corpus);
 
     const trackMat = new THREE.MeshLambertMaterial({ color: '#222222' });
-    [-2.3, 2.3].forEach(xOff => {
-        const tr = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 6.2), trackMat);
-        tr.position.set(xOff, 0.85, 0);
-        tr.castShadow = true;
-        group.add(tr);
-    });
     addRoadWheels(group, trackMat, 6, 'modern');
     addGlacisPlate(corpus, bodyColor, 4, 6);
     addEngineDeckDetail(corpus, '#222222', 4, 6);
@@ -2240,6 +2271,7 @@ function updateEnemyAI(enemy, dt) {
                 enemy.mesh.translateZ(-enemy.speed * 2);
             }
             enemy.mesh.position.y = getTerrainHeight(enemy.mesh.position.x, enemy.mesh.position.z);
+            applyTerrainTilt(enemy.mesh, enemy.mesh.rotation.y, 3, 2);
         }
     } else if (enemy.state === 'angreifen') {
         // Manöver-Richtung periodisch wechseln (Umkreisen)
@@ -2282,6 +2314,7 @@ function updateEnemyAI(enemy, dt) {
             }
         }
         enemy.mesh.position.y = getTerrainHeight(enemy.mesh.position.x, enemy.mesh.position.z);
+        applyTerrainTilt(enemy.mesh, enemy.mesh.rotation.y, 3, 2);
 
         // Turm unabhängig auf Spieler richten
         const turretWorldPos = new THREE.Vector3();
@@ -2500,6 +2533,9 @@ TANK_SELECT_ORDER.forEach(typeKey => {
 });
 const turnSpeed      = 0.03;
 let   tankCurrentSpeed = 0;
+let   tankYaw = 0; // separat verfolgt statt per rotateY() (Quaternion), damit
+                    // Gefälle-Neigung (Pitch/Roll) jeden Frame sauber und ohne
+                    // Drift aus Yaw + Hangwinkel neu zusammengesetzt werden kann
 
 // Eingabe-Glättung (Drehung/Turm), damit schnelle Joystick-Richtungswechsel
 // nicht ruckartig, sondern weich ankommen.
@@ -2541,6 +2577,7 @@ function animate() {
   _cd.transformDirection(cannon.matrixWorld);
   window.__testCannonDir = { x: _cd.x, y: _cd.y, z: _cd.z };
   window.__testGunPitch = gunPivot.rotation.x;
+  window.__testTankRotation = { x: tank.rotation.x, y: tank.rotation.y, z: tank.rotation.z };
   window.__testTerrainHeight = (x, z) => getTerrainHeight(x, z);
   window.__testBridgeXs = BRIDGE_XS;
 
@@ -2600,9 +2637,12 @@ function animate() {
   smoothRotY    += (rotY - smoothRotY) * smoothing;
   smoothTurretY += (turretY - smoothTurretY) * smoothing;
 
-  tank.rotateY(turnSpeed * smoothRotY);
-  // Panzer "klebt" am Boden: Höhe folgt jeden Frame der Hügel-Höhenkarte.
+  tankYaw += turnSpeed * smoothRotY;
+  // Panzer "klebt" am Boden: Höhe folgt jeden Frame der Hügel-Höhenkarte,
+  // und die Wanne neigt sich passend zur Hangneigung (Pitch/Roll) statt
+  // immer waagerecht über dem Gelände zu stehen.
   tank.position.y = getTerrainHeight(tank.position.x, tank.position.z);
+  applyTerrainTilt(tank, tankYaw, 3, 2);
 
   // 3. Turm (im Zoom-Modus verlangsamt)
   turret.rotateY(turnSpeed * smoothTurretY * (scopeActive ? 0.04 : 1.0));
