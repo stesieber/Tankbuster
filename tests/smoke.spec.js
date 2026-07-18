@@ -406,13 +406,13 @@ test.describe('Phase 5 – Waffen-Anzeige', () => {
 });
 
 // ── Phase 6 Tests ────────────────────────────────────────────────────────────
-test.describe('Phase 6 – Panzerauswahl (5 Panzer)', () => {
+test.describe('Phase 6 – Panzerauswahl (6 Fahrzeuge)', () => {
 
-  test('Panzerauswahl-Bildschirm zeigt alle 5 Panzer', async ({ page }) => {
+  test('Panzerauswahl-Bildschirm zeigt alle 6 Fahrzeuge', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
 
-    for (const key of ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc']) {
+    for (const key of ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs']) {
       await expect(page.locator(`#tank-card-${key}`)).toBeVisible();
       await expect(page.locator(`#btn-select-${key}`)).toBeVisible();
     }
@@ -422,7 +422,7 @@ test.describe('Phase 6 – Panzerauswahl (5 Panzer)', () => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(800);
 
-    for (const id of ['preview-abrams', 'preview-t90', 'preview-leclerc']) {
+    for (const id of ['preview-abrams', 'preview-t90', 'preview-leclerc', 'preview-mlrs']) {
       const isNotBlack = await page.evaluate((canvasId) => {
         const canvas = document.getElementById(canvasId);
         if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
@@ -491,6 +491,96 @@ test.describe('Phase 6 – Panzerauswahl (5 Panzer)', () => {
     expect(movePrevented, 'touchmove sollte auf der Panzerauswahl nicht preventDefault() aufrufen').toBe(false);
     expect(overflowsViewport, '5 Panzer-Karten sollten den Bildschirm überragen (Scroll nötig)').toBe(true);
     expect(touchAction).not.toBe('none');
+  });
+
+});
+
+test.describe('M270 MLRS – Raketenwerfer-Fahrzeug', () => {
+
+  test('Auswahl MLRS: kein Kanone/MG-Button, dafür Raketen-Slot mit 3 Ladungen', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const loadout  = await page.evaluate(() => window.__testWeaponLoadout);
+    const charges  = await page.evaluate(() => window.__testRocketCharges);
+
+    expect(selected).toBe('mlrs');
+    expect(loadout).toBe('mlrs');
+    expect(charges).toBe(3);
+    await expect(page.locator('#tank-name')).toContainText('MLRS');
+    await expect(page.locator('#shoot-btn')).toBeHidden();
+    await expect(page.locator('#btn-mg')).toBeHidden();
+    await expect(page.locator('#weapon-slot-cannon')).toBeHidden();
+    await expect(page.locator('#weapon-slot-mg')).toBeHidden();
+    await expect(page.locator('#btn-rocket')).toBeVisible();
+  });
+
+  test('Andere Panzer behalten Kanone und MG (MLRS-Auswahl blendet sie nicht dauerhaft aus)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'koenigstiger');
+
+    await expect(page.locator('#shoot-btn')).toBeVisible();
+    await expect(page.locator('#btn-mg')).toBeVisible();
+    const loadout = await page.evaluate(() => window.__testWeaponLoadout);
+    expect(loadout).toBe('standard');
+  });
+
+  test('Leertaste (Kanone) hat beim MLRS keine Wirkung', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    const shotsBefore = await page.evaluate(() => document.getElementById('shot-count').textContent);
+    await page.keyboard.press(' ');
+    await page.waitForTimeout(200);
+    const shotsAfter = await page.evaluate(() => document.getElementById('shot-count').textContent);
+    expect(shotsAfter).toBe(shotsBefore);
+  });
+
+  test('Raketen-Salve verbraucht eine Ladung und feuert 5 Raketen ab', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.click('#btn-rocket');
+    await page.waitForTimeout(100);
+
+    const chargesRightAfter = await page.evaluate(() => window.__testRocketCharges);
+    const firingRightAfter  = await page.evaluate(() => window.__testRocketSalvoFiring);
+    expect(chargesRightAfter).toBe(2);
+    expect(firingRightAfter).toBe(true);
+
+    // Salve besteht aus 5 gestaffelten Schüssen (150ms Abstand) – nach genug
+    // Zeit muss "firing" wieder false sein.
+    await page.waitForTimeout(1200);
+    const firingAfterSalvo = await page.evaluate(() => window.__testRocketSalvoFiring);
+    expect(firingAfterSalvo).toBe(false);
+  });
+
+  test('Kein zweiter Abschuss möglich während eine Salve noch läuft', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    // Tastatur statt Klick: umgeht den disabled-Button und testet direkt die
+    // tryFireRocket()-Sperre (ein zweiter Klick auf den während der Salve
+    // disabled-Button würde von Playwright bis zur Wiederaktivierung warten).
+    await page.keyboard.press('r');
+    await page.waitForTimeout(50);
+    await page.keyboard.press('r'); // sollte während laufender Salve ignoriert werden
+    await page.waitForTimeout(50);
+
+    const charges = await page.evaluate(() => window.__testRocketCharges);
+    expect(charges, 'zweiter Abschuss während laufender Salve darf keine weitere Ladung verbrauchen').toBe(2);
   });
 
 });

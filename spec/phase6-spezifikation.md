@@ -65,7 +65,9 @@ Der Auswahl-Bildschirm aus Phase 5 bekommt **3 zusätzliche, spielbare Panzer** 
 ---
 
 ## ⚠️ Was Phase 6 noch NICHT enthält
-- Unterschiedliche Waffen-Werte pro neuem Panzer (alle nutzen vorerst die gleiche Kanone/MG/Rakete)
+- Unterschiedliche Waffen-Werte pro neuem Panzer (alle nutzen vorerst die gleiche Kanone/MG/Rakete) –
+  gilt weiterhin für Königstiger/Leopard/Abrams/T-90/Leclerc; der später ergänzte
+  M270 MLRS (siehe Umsetzung/As-Built) ist bewusst die einzige Ausnahme (nur Raketen-Salven)
 - Steile Berge oder Klippen – nur sanfte Hügel
 
 ---
@@ -165,19 +167,76 @@ Raketenwerfer und Höhenwinkel-Pivot funktionieren dadurch automatisch mit.
 | M1A2 Abrams | 1.05× | 0.315 | 115 |
 | T-90 | 0.75× | 0.225 | 160 |
 | Leclerc | 1.55× | 0.465 | 90 |
+| M270 MLRS | 1.2× | 0.36 | 65 |
 
 Wie in Phase 5 wird Panzerung ausschließlich als Max-HP abgebildet, kein
 separater Schadensreduktionsfaktor. Waffen-Werte (Schaden/Cooldown von
-Kanone/MG/Rakete) sind für alle 5 Panzer identisch – wie in den
-Qualitätskriterien für Phase 6 vorgesehen.
+Kanone/MG/Rakete) sind für die 5 "normalen" Panzer identisch – wie in den
+Qualitätskriterien für Phase 6 vorgesehen. Der M270 MLRS (siehe unten) ist
+davon ausgenommen: er hat gar keine Kanone/MG, nur Raketen-Salven.
 
-`TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc']`
+`TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs']`
 steuert sowohl die Vorschau-Erzeugung als auch die Button-Verknüpfung im
 Auswahl-Bildschirm zentral, damit neue Panzer an einer Stelle ergänzt werden
-können. Die 5 Karten laufen im bestehenden Flex-Wrap-Layout
+können. Die 6 Karten laufen im bestehenden Flex-Wrap-Layout
 (`#tank-select-cards`) um und werden bei Bedarf über das bereits vorhandene
 `overflow-y: auto` auf `#tank-select-screen` gescrollt (kein zusätzlicher
 Pfeil-Scroller nötig).
+
+### M270 MLRS – reines Raketenwerfer-Fahrzeug (Nutzer-Feedback)
+
+Zusätzlicher, sechster Fahrzeugtyp: **nur** Raketen, keine Kanone/kein MG.
+Statt einer Einzelrakete pro Cooldown (wie bei den anderen 5 Fahrzeugen)
+feuert er auf Knopfdruck eine **Salve von 5 Raketen** ab. Er hat **3
+Ladungen** für je eine Salve; eine verbrauchte Ladung lädt nach 10 Sekunden
+automatisch wieder nach (bis maximal 3), ähnlich einem Fähigkeiten-Cooldown
+statt einem klassischen Nachladen.
+
+**Voraussetzung – Panzer-Rebuild statt nur Umfärben:** Bisher baute
+`buildTankMesh()` das Spieler-Mesh nur **einmal** beim Laden (für
+Königstiger); `applyTankType()` beim Auswählen eines anderen Panzers hat nur
+Farben/HP/Tempo umgestellt, nie die tatsächliche Geometrie (Laufwerk-Stil,
+Turm-Form, Mündungsbremse blieben immer die des Königstigers). Für den MLRS
+mit sichtbar anderem Waffenmodul (Raketen-Pod statt Kanone) reichte reines
+Umfärben nicht mehr aus. Neue Funktion `rebuildPlayerTank(cfg)` entfernt das
+alte Tank-Mesh aus der Szene, ruft `buildTankMesh(cfg)` neu auf und
+aktualisiert alle modulweiten Referenzen (`tank`, `body`, `turret`,
+`turretBox`, `gunPivot`, `cannon`, `rocketMuzzle` – dafür von `const` auf
+`let` umgestellt). `selectTank()` ruft jetzt `rebuildPlayerTank(cfg)` vor
+`applyTankType(cfg)` auf. Nebeneffekt: Abrams/T-90/Leclerc zeigen dadurch
+jetzt auch wirklich ihre eigenen Laufwerk-/Turm-/Mündungsbremse-Stile aus
+`TANK_TYPES` statt (unbemerkt) der Königstiger-Geometrie.
+
+**Waffenmodul:** `buildTankMesh()` prüft `cfg.weaponLoadout === 'mlrs'`. Die
+Kanonen-Mesh bleibt immer vorhanden (dient überall als Richtungs-/
+Positions-Referenz für Schuss- und Zielfernrohr-Berechnungen über
+`cannon.matrixWorld`), wird aber unsichtbar geschaltet. Sichtbar ist
+stattdessen `addRocketPod()`: ein Rahmen mit einem 3×2-Bündel kurzer
+Abschussrohre, am selben `gunPivot` befestigt wie die Kanone bei anderen
+Panzern – neigt sich also genauso mit dem Höhenwinkel (-5°..+20°).
+
+**Waffen-Freischaltung:** Neue globale `currentWeaponLoadout`
+(`'standard'` | `'mlrs'`), gesetzt in `applyTankType()`. `tryFireCannon()`
+und der MG-Auto-Feuer-Block in `animate()` brechen sofort ab, wenn
+`currentWeaponLoadout !== 'standard'`. Kanone-Button, MG-Button sowie deren
+HUD-Slots (`#weapon-slot-cannon`/`#weapon-slot-mg`) werden beim Auswählen
+des MLRS per `style.display = 'none'` ausgeblendet (und beim Wechsel zurück
+zu einem Standard-Panzer wieder eingeblendet – nur relevant für zukünftige
+Mehrfachauswahl, aktuell wählt man einmal pro Runde).
+
+**Salven-/Ladungslogik** (`tryFireRocketSalvo()`, Nachlade-Tick in
+`animate()`): `rocketCharges` (0–3) und `rocketSalvoFiring` steuern, ob
+gefeuert werden darf; eine Salve feuert `fireRocket()` 5× mit 150ms Abstand
+(`setTimeout`) und blockiert für die Dauer der Salve + Puffer weitere
+Anfragen. Ein Timer (`rocketChargeTimer`, in `animate()` per `dt`
+hochgezählt) füllt bei < 3 Ladungen alle 10000ms eine Ladung nach.
+`tryFireRocket()` verzweigt anhand von `currentWeaponLoadout` zwischen dieser
+Salven-Logik und der unveränderten Einzelraketen-Logik der anderen 5
+Fahrzeuge.
+
+Schaden/Explosionsradius pro Einzelrakete sind identisch zur bestehenden
+Rakete (70 Schaden, Radius 8) – die Salve von 5 ist der Unterschied, nicht
+die Werte pro Rakete.
 
 **Bugfix Scrollen auf Mobile (Nutzer-Feedback):** Mit 5 Karten überragt
 `#tank-select-screen` auf vielen Bildschirmen die Höhe – Scrollen ist also
@@ -199,6 +258,9 @@ verhindert.
 | `__testTerrainHeight` | function(x, z) → number | Bodenhöhe an Weltkoordinate (x, z) |
 | `__testBridgeXs` | number[] | X-Positionen der Brücken (= X-Positionen der Nord-Süd-Straßen) |
 | `__testTankRotation` | {x,y,z} | Aktuelle Panzer-Rotation (Pitch/Gier/Roll) in Radiant |
+| `__testWeaponLoadout` | 'standard' \| 'mlrs' | Waffen-Ausstattung des gewählten Fahrzeugs |
+| `__testRocketCharges` | number | Verbleibende Salven-Ladungen des MLRS (0–3) |
+| `__testRocketSalvoFiring` | boolean | Ob gerade eine 5er-Salve läuft (Feuersperre) |
 
 ### Bugfix Panzerketten (Nutzer-Feedback)
 

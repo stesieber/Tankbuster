@@ -399,6 +399,15 @@ html, body {
   opacity: 0.85;
 }
 
+/* Kurzer Hinweistext statt Stat-Balken, z.B. für den Raketenwerfer ohne
+   Kanone/MG ("Nur Raketen: 3x Salve à 5"). */
+.tank-stat-note {
+  flex: 1;
+  text-align: right;
+  opacity: 0.85;
+  font-style: italic;
+}
+
 .btn-select-tank {
   margin-top: 4px;
   padding: 12px 0;
