@@ -425,6 +425,27 @@ Königstiger (bisher größtes Fahrzeug), aber bewusst nur moderat größer
 Zielfernrohr-Kamera-Offset (siehe Abschnitt "Zielfernrohr-Kamera" oben)
 weiterhin über der Turmkuppel bleibt.
 
+### Bugfix "Neue Panzer haben keine Vorschau und lassen sich nicht auswählen" (Nutzer-Feedback)
+
+`buildTankPreview()` erzeugte bisher für **jede** Panzer-Karte einen
+eigenen `THREE.WebGLRenderer` (eigener WebGL-Kontext). Mit 7 Panzern +
+Hauptspiel-Renderer waren das 8 gleichzeitige Kontexte – gerade noch unter
+dem Limit vieler Browser (v.a. Safari/mobile Browser begrenzen oft auf
+~8). Die 3 neuen Panzer erhöhten das auf 11 Kontexte; die zuletzt
+erzeugten (praktisch immer die zuletzt in `TANK_SELECT_ORDER` stehenden,
+also genau die neuen Panzer) scheiterten an der Kontext-Erstellung –
+Karte und Auswählen-Button blieben im DOM vorhanden, aber Vorschau blieb
+leer und der Button reagierte nicht richtig.
+
+Fix: Ein einziger, unsichtbarer, geteilter `WebGLRenderer`
+(`sharedPreviewRenderer`) rendert nacheinander jede Panzer-Szene in
+seinen eigenen Offscreen-Canvas; `animateTankPreviews()` kopiert das
+Ergebnis per `ctx.drawImage()` auf die jeweils sichtbare `<canvas>`
+(die dadurch nur noch einen 2D-Kontext braucht, keinen WebGL-Kontext
+mehr). Nur noch 2 WebGL-Kontexte insgesamt, unabhängig von der Anzahl
+der Panzer im Auswahl-Bildschirm – skaliert damit auch für künftig
+weitere Fahrzeuge.
+
 ### Schlachtfeld verdoppelt (Nutzer-Feedback)
 
 Alle kartenbezogenen Konstanten wurden linear ×2 skaliert (Fläche damit

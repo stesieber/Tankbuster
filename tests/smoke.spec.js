@@ -499,6 +499,31 @@ test.describe('Phase 6 – Panzerauswahl (10 Fahrzeuge)', () => {
     }
   });
 
+  // REGRESSION TEST (Nutzer-Feedback: "bei den neuen Panzern keine Vorschau,
+  // nicht auswählbar"): Ursache war ein eigener WebGLRenderer PRO Panzer-
+  // Karte – mit 10 Panzern + Hauptspiel-Renderer 11 gleichzeitige WebGL-
+  // Kontexte, viele Browser (v.a. Safari/mobil) begrenzen das auf ~8, die
+  // zuletzt erzeugten Kontexte (= die neuesten Panzer) scheiterten dann
+  // lautlos. Fix: ein einziger geteilter Renderer, Vorschau-Canvases sind
+  // reine 2D-Canvases (drawImage-Kopie). Zählt daher explizit, wie viele
+  // <canvas>-Elemente tatsächlich einen WebGL-Kontext besitzen – muss
+  // unabhängig von der Panzer-Anzahl bei genau 1 bleiben (nur das
+  // Hauptspiel-Canvas).
+  test('Nur das Hauptspiel-Canvas nutzt WebGL – Panzer-Vorschauen teilen sich einen Kontext', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(800);
+
+    const webglCanvasCount = await page.evaluate(() => {
+      let count = 0;
+      document.querySelectorAll('canvas').forEach(c => {
+        if (c.getContext('webgl2', { failIfMajorPerformanceCaveat: false }) || c.getContext('webgl')) count++;
+      });
+      return count;
+    });
+
+    expect(webglCanvasCount, 'Es darf nur 1 WebGL-Kontext geben (Hauptspiel) – jede Panzer-Karte mit eigenem Kontext würde bei vielen Fahrzeugen an Browser-Limits scheitern').toBe(1);
+  });
+
   test('T-90 ist langsam und sehr stark gepanzert (mehr HP als Königstiger)', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
