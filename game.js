@@ -48,7 +48,7 @@ scene.add(dirLight);
 
 // ── Ground ─────────────────────────────────────────────────────────────────
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(1000, 1000),
+  new THREE.PlaneGeometry(1000, 1000, 100, 100),
   new THREE.MeshLambertMaterial({ color: '#4a5e23' })
 );
 ground.rotation.x = -Math.PI / 2;
@@ -58,6 +58,78 @@ scene.add(ground);
 // ── Fluss & Brücken ────────────────────────────────────────────────────────
 const RIVER_Z      = -30;
 const RIVER_HALF_W = 10;   // 20 Einheiten Gesamtbreite
+const SOUTH_ROAD_Z = RIVER_Z + RIVER_HALF_W + 9;   // -11
+const NORTH_ROAD_Z = RIVER_Z - RIVER_HALF_W - 9;   // -49
+// Brücken UND Nord-Süd-Verbindungsstraßen teilen sich dieselben X-Positionen,
+// damit die Straßen tatsächlich auf eine Brücke zulaufen statt querfeldein
+// an einer anderen Stelle in den Fluss zu laufen.
+const BRIDGE_XS = [-85, 10, 90];
+const VERTICAL_ROAD_XS = BRIDGE_XS;
+
+// ── Hügel-Landschaft (Höhenkarte) ───────────────────────────────────────────
+// Sanfte, überlagerte Sinuswellen statt echtem Perlin-Noise (kein zusätzliches
+// Noise-Paket nötig). Fluss und Straßen bleiben flach: distanceToFlatZones()
+// dämpft die Hügelamplitude in einem Streifen um Fluss/Straßen auf 0 und
+// blendet darüber hinaus weich (smoothstep) zur vollen Amplitude auf, damit
+// Brücken, Uferstraßen und Kreuzungen nicht im Gelände versinken.
+function smoothFalloff(dist, blendWidth) {
+  if (dist <= 0) return 0;
+  if (dist >= blendWidth) return 1;
+  const t = dist / blendWidth;
+  return t * t * (3 - 2 * t);
+}
+
+function distanceToFlatZones(x, z) {
+  let factor = 1;
+  factor = Math.min(factor, smoothFalloff(Math.abs(z - RIVER_Z) - (RIVER_HALF_W + 6), 20));
+  factor = Math.min(factor, smoothFalloff(Math.abs(z - SOUTH_ROAD_Z) - 6, 20));
+  factor = Math.min(factor, smoothFalloff(Math.abs(z - NORTH_ROAD_Z) - 6, 20));
+  for (const rx of VERTICAL_ROAD_XS) {
+    factor = Math.min(factor, smoothFalloff(Math.abs(x - rx) - 6, 20));
+  }
+  return factor;
+}
+
+function baseHillHeight(x, z) {
+  return 10.5 * Math.sin(x * 0.008 + 1.3) * Math.cos(z * 0.007 - 0.7)
+       +  6.0 * Math.sin(x * 0.014 - z * 0.011)
+       +  3.6 * Math.sin(z * 0.021 + x * 0.005);
+}
+
+function getTerrainHeight(x, z) {
+  return baseHillHeight(x, z) * distanceToFlatZones(x, z);
+}
+
+// Neigt einen Panzer (Pitch/Roll) passend zur Hangneigung unter seiner
+// Grundfläche, statt immer waagerecht über dem Gelände zu stehen. Tastet die
+// Geländehöhe am angenommenen vorderen/hinteren bzw. linken/rechten Rand ab
+// (halfLength/halfWidth ≈ halbe Wannenlänge/-breite) und setzt rotation.x
+// (Pitch) und rotation.z (Roll) direkt – rotation.y (Gieren) bleibt dabei
+// unverändert von diesem Aufruf und muss vom Aufrufer separat gesetzt sein.
+function applyTerrainTilt(mesh, yaw, halfLength, halfWidth) {
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw); // Vorwärtsrichtung (lokal -Z)
+  const rx =  Math.cos(yaw), rz = -Math.sin(yaw); // Rechtsrichtung (lokal +X)
+  const p = mesh.position;
+  const hAhead  = getTerrainHeight(p.x + fx * halfLength, p.z + fz * halfLength);
+  const hBehind = getTerrainHeight(p.x - fx * halfLength, p.z - fz * halfLength);
+  const hRight  = getTerrainHeight(p.x + rx * halfWidth,  p.z + rz * halfWidth);
+  const hLeft   = getTerrainHeight(p.x - rx * halfWidth,  p.z - rz * halfWidth);
+  const pitch = Math.atan2(hAhead - hBehind, halfLength * 2);
+  const roll  = Math.atan2(hRight - hLeft, halfWidth * 2);
+  mesh.rotation.set(pitch, yaw, roll);
+}
+
+function applyTerrainToGround(mesh) {
+  const posAttr = mesh.geometry.attributes.position;
+  for (let i = 0; i < posAttr.count; i++) {
+    const worldX = posAttr.getX(i);
+    const worldZ = -posAttr.getY(i); // Plane liegt vor der Rotation in der XY-Ebene: lokal-Y → Welt-Z (negiert)
+    posAttr.setZ(i, getTerrainHeight(worldX, worldZ)); // lokal-Z → Welt-Y (Höhe) nach der -90°-X-Rotation
+  }
+  posAttr.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+}
+applyTerrainToGround(ground);
 
 // Flusswasser
 const riverMesh = new THREE.Mesh(
@@ -118,14 +190,10 @@ function buildBridge(bx) {
   }
 }
 
-buildBridge(-85);
-buildBridge(10);
-buildBridge(90);
+BRIDGE_XS.forEach(buildBridge);
 
 // ── Straßennetz ────────────────────────────────────────────────────────────
 const ROAD_Y    = 0.04;
-const SOUTH_ROAD_Z = RIVER_Z + RIVER_HALF_W + 9;   // -11
-const NORTH_ROAD_Z = RIVER_Z - RIVER_HALF_W - 9;   // -49
 
 const roadMat = new THREE.MeshLambertMaterial({ color: '#3a3a3a' });
 
@@ -133,8 +201,13 @@ function buildRoad(x1, z1, x2, z2, width) {
   const dx = x2 - x1, dz = z2 - z1;
   const length = Math.sqrt(dx * dx + dz * dz);
   if (length < 0.5) return;
+  // Straßen folgen sanft dem Gelände: Höhe = Mittelwert der Endpunkt-Bodenhöhen
+  // (Haupt-/Kreuzungsstraßen liegen ohnehin in den flach gehaltenen Zonen,
+  // Haus-Zufahrten auf Hügeln bekommen so zumindest die richtige Grundhöhe).
+  const y1 = getTerrainHeight(x1, z1);
+  const y2 = getTerrainHeight(x2, z2);
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, 0.06, length), roadMat);
-  mesh.position.set((x1 + x2) / 2, ROAD_Y, (z1 + z2) / 2);
+  mesh.position.set((x1 + x2) / 2, (y1 + y2) / 2 + ROAD_Y, (z1 + z2) / 2);
   mesh.rotation.y = Math.atan2(dx, dz);
   mesh.receiveShadow = true;
   scene.add(mesh);
@@ -145,12 +218,12 @@ buildRoad(-500, SOUTH_ROAD_Z,  500, SOUTH_ROAD_Z, 6);
 buildRoad(-500, NORTH_ROAD_Z,  500, NORTH_ROAD_Z, 6);
 
 // Nord–Süd-Verbindungsstraßen (durch die ganze Karte)
-for (const rx of [-200, 0, 200]) {
+for (const rx of VERTICAL_ROAD_XS) {
   buildRoad(rx, -500, rx,  500, 5);
 }
 
 // Brücken-Zufahrten (verbinden Hauptstraße mit Brückenende)
-for (const bx of [-85, 10, 90]) {
+for (const bx of BRIDGE_XS) {
   buildRoad(bx, SOUTH_ROAD_Z, bx, RIVER_Z + BRIDGE_L / 2, 6);
   buildRoad(bx, NORTH_ROAD_Z, bx, RIVER_Z - BRIDGE_L / 2, 6);
 }
@@ -272,7 +345,7 @@ for (let i = 0; i < 10; i++) {
   const d = randomBetween(8, 15);
   const group = buildHouse(w, h, d);
   const pos = randomPositionFarFrom(30, 380);
-  group.position.set(pos.x, h / 2, pos.z);
+  group.position.set(pos.x, getTerrainHeight(pos.x, pos.z) + h / 2, pos.z);
   scene.add(group);
   houses.push({ mesh: group, hp: 100, destroyed: false, bw: w, bh: h, bd: d, beingRammed: false, holeMesh: null, ramDmgAccum: 0 });
 }
@@ -301,7 +374,7 @@ for (let i = 0; i < 30; i++) {
   group.add(crown);
 
   const pos = randomPositionFarFrom(15, 400);
-  group.position.set(pos.x, 0, pos.z);
+  group.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z);
   scene.add(group);
   trees.push({ group, falling: false, fallen: false, fallAngle: 0, fallSpeed: 0, axis: new THREE.Vector3(1, 0, 0) });
 }
@@ -330,7 +403,9 @@ function spawnForest(cx, cz, radius, count) {
 
     const angle = Math.random() * Math.PI * 2;
     const r     = Math.sqrt(Math.random()) * radius;
-    group.position.set(cx + Math.cos(angle) * r, 0, cz + Math.sin(angle) * r);
+    const tx = cx + Math.cos(angle) * r;
+    const tz = cz + Math.sin(angle) * r;
+    group.position.set(tx, getTerrainHeight(tx, tz), tz);
     scene.add(group);
     trees.push({ group, falling: false, fallen: false, fallAngle: 0, fallSpeed: 0, axis: new THREE.Vector3(1, 0, 0) });
   }
@@ -382,7 +457,7 @@ for (let i = 0; i < 50; i++) {
   const r = randomBetween(0.8, 1.5);
   const group = buildBush(r);
   const pos = randomPositionFarFrom(10, 420);
-  group.position.set(pos.x, 0, pos.z);
+  group.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z);
   scene.add(group);
   bushes.push({ group, radius: r, flattening: false, flattened: false, flatProgress: 0 });
 }
@@ -420,6 +495,7 @@ function checkTankBushCollisions() {
 const TANK_TYPES = {
   koenigstiger: {
     key: 'koenigstiger',
+    weaponLoadout: 'standard',
     label: 'Königstiger',
     icon: '🐯',
     bodyColor: '#3a5a2a',
@@ -440,6 +516,7 @@ const TANK_TYPES = {
   },
   leopard: {
     key: 'leopard',
+    weaponLoadout: 'standard',
     label: 'Leopard 2 A8',
     icon: '🐆',
     bodyColor: '#6e7266',
@@ -457,6 +534,111 @@ const TANK_TYPES = {
     wheelStyle: 'modern',    // gleichmäßige Einzellaufrollen, kein Überlapp
     muzzleStyle: 'sleeve',   // Glattrohr ohne Bremse, nur Wärmeschutzhülle
     turretStyle: 'wedge',    // keilförmige Verbundpanzerung-Front (Leopard 2A5+)
+  },
+  abrams: {
+    key: 'abrams',
+    weaponLoadout: 'standard',
+    label: 'M1A2 Abrams',
+    icon: '🦅',
+    bodyColor: '#7a765f',
+    cannonColor: '#55523f',
+    trackColor: '#2a2a2a',
+    camoColors: ['#6a6650', '#8f8a6c', '#4a4736', '#a39c7c'],
+    bodySize: { w: 4.0, h: 1.4,  d: 6.2 },
+    turretSize: { w: 2.6, h: 1.1, d: 2.7 },
+    speedFactor: 1.05,
+    maxHP: 115,
+    speedLabel: 'Mittel',
+    armorLabel: 'Mittel',
+    speedPct: 60,
+    armorPct: 65,
+    wheelStyle: 'modern',
+    muzzleStyle: 'sleeve',    // 120mm Glattrohr M256, Wärmeschutzhülle
+    turretStyle: 'wedge',     // moderne Verbundpanzerung-Front
+  },
+  t90: {
+    key: 't90',
+    weaponLoadout: 'standard',
+    label: 'T-90',
+    icon: '🐻',
+    bodyColor: '#4a5a3a',
+    cannonColor: '#333d28',
+    trackColor: '#1e1e1e',
+    camoColors: ['#3a4a2c', '#5c6e46', '#232b18', '#6e5a34'],
+    bodySize: { w: 3.8, h: 1.35, d: 6.1 },
+    turretSize: { w: 2.4, h: 1.0,  d: 2.4 },
+    speedFactor: 0.75,
+    maxHP: 160,
+    speedLabel: 'Langsam',
+    armorLabel: 'Sehr stark',
+    speedPct: 30,
+    armorPct: 95,
+    wheelStyle: 'modern',
+    muzzleStyle: 'doubleBaffle', // 125mm 2A46 mit Rauchabsauger-Andeutung
+    turretStyle: 'roundedMantlet', // gegossener Turm
+  },
+  leclerc: {
+    key: 'leclerc',
+    weaponLoadout: 'standard',
+    label: 'Leclerc',
+    icon: '🐓',
+    bodyColor: '#7a7256',
+    cannonColor: '#4f4a38',
+    trackColor: '#2a2a2a',
+    camoColors: ['#5c5640', '#847c5c', '#39351f', '#9c8f5f'],
+    bodySize: { w: 3.7, h: 1.2,  d: 6.0 },
+    turretSize: { w: 2.2, h: 0.9,  d: 2.5 },
+    speedFactor: 1.55,
+    maxHP: 90,
+    speedLabel: 'Sehr schnell',
+    armorLabel: 'Moderat',
+    speedPct: 98,
+    armorPct: 50,
+    wheelStyle: 'modern',
+    muzzleStyle: 'sleeve',
+    turretStyle: 'wedge',     // markante eckige Panzerung-Module
+  },
+  mlrs: {
+    key: 'mlrs',
+    weaponLoadout: 'mlrs', // nur Raketen-Salven, keine Kanone/kein MG
+    label: 'M270 MLRS',
+    icon: '🚀',
+    bodyColor: '#5a6048',
+    cannonColor: '#333',       // ungenutzt fürs Rohr, färbt nur den Pod-Trimm
+    trackColor: '#242424',
+    camoColors: ['#4a5038', '#6c7458', '#33361f', '#82855f'],
+    bodySize: { w: 3.8, h: 1.3, d: 6.0 },
+    turretSize: { w: 2.0, h: 0.9, d: 2.0 },
+    speedFactor: 1.2,
+    maxHP: 65,
+    speedLabel: 'Schnell',
+    armorLabel: 'Schwach',
+    speedPct: 78,
+    armorPct: 18,
+    wheelStyle: 'modern',
+    muzzleStyle: 'sleeve',   // ungenutzt (kein Kanonenrohr)
+    turretStyle: 'wedge',    // ungenutzt (Raketen-Pod statt Mantlet/Wedge-Front)
+  },
+  puma: {
+    key: 'puma',
+    weaponLoadout: 'autocannon', // nur Maschinenkanone (Dauerfeuer), kein Kanone/keine Rakete
+    label: 'Puma',
+    icon: '🔫',
+    bodyColor: '#5c6152',
+    cannonColor: '#33352a',
+    trackColor: '#242424',
+    camoColors: ['#4c5040', '#6e7260', '#2c2e22', '#83866c'],
+    bodySize: { w: 3.9, h: 1.3, d: 6.1 },
+    turretSize: { w: 2.1, h: 0.85, d: 2.0 },
+    speedFactor: 1.35,
+    maxHP: 85,
+    speedLabel: 'Schnell',
+    armorLabel: 'Moderat',
+    speedPct: 82,
+    armorPct: 45,
+    wheelStyle: 'modern',
+    muzzleStyle: 'sleeve',   // ungenutzt (Doppelrohr statt Kanone)
+    turretStyle: 'wedge',    // ungenutzt (Doppelrohr statt Mantlet/Wedge-Front)
   },
 };
 
@@ -508,6 +690,25 @@ function makeWheelAdder(tankGroup, hubMat) {
   };
 }
 
+// Durchgehendes Ketten-Band: dünner Streifen oben (Rücklauf der Kette über
+// den Laufrollen) und unten (Bodenkontakt). Erst dieses Band macht die
+// Laufrollen optisch zu einer Kette statt zu frei stehenden Rädern – vorher
+// endete die Seitenverkleidung mittig über den Rollen und deren untere
+// Hälfte (der Teil, der eigentlich die Kette am Boden zeigt) war unbedeckt.
+function addTrackBands(tankGroup, trackMat, xOff, zFrom, zTo, bottomY, topY) {
+  const bandWidth = 0.58;
+  const bandThickness = 0.1;
+  const length = zTo - zFrom;
+  const centerZ = (zFrom + zTo) / 2;
+
+  [bottomY, topY].forEach(y => {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(bandWidth, bandThickness, length), trackMat);
+    band.position.set(xOff, y, centerZ);
+    band.castShadow = true;
+    tankGroup.add(band);
+  });
+}
+
 // Moderner Laufwerk-Stil (z.B. Leopard 2): gleichmäßige Einzelrollen, kein Überlapp.
 function addRoadWheelsModern(tankGroup, hubMat, bodyDepth) {
   const addWheel = makeWheelAdder(tankGroup, hubMat);
@@ -522,6 +723,7 @@ function addRoadWheelsModern(tankGroup, hubMat, bodyDepth) {
     // Antriebsrad vorne (etwas größer/erhöht) und Leitrad hinten
     addWheel(xOff, 0.5,  zFrom - 0.55, 0.48, 0.3);
     addWheel(xOff, 0.48, zTo + 0.55,   0.46, 0.3);
+    addTrackBands(tankGroup, hubMat, xOff, zFrom - 0.9, zTo + 0.9, 0.04, 0.95);
   }
 }
 
@@ -546,6 +748,7 @@ function addRoadWheelsOverlapping(tankGroup, hubMat, bodyDepth) {
     // Antriebsrad vorne und Leitrad hinten (auf der äußeren Reihe)
     addWheel(side * 2.6, 0.58, zFrom - 0.6, 0.6, 0.32);
     addWheel(side * 2.6, 0.56, zTo + 0.6,   0.58, 0.32);
+    addTrackBands(tankGroup, hubMat, side * 2.6, zFrom - 0.95, zTo + 0.95, 0.04, 1.15);
   }
 }
 
@@ -671,6 +874,66 @@ function addMuzzleDetails(turretGroup, cannonColor, style) {
   else addThermalSleeve(turretGroup);
 }
 
+// Mehrfach-Raketenwerfer-Pod (M270 MLRS): Rahmen + Bündel kurzer Abschussrohre
+// anstelle einer Kanone. Sitzt am gunPivot, neigt sich also mit dem
+// Höhenwinkel wie die Kanone bei den anderen Panzern.
+// Geteilte Geometrie-Konstanten mit den drei zyklischen Mündungspunkten
+// (buildTankMesh) – links/mitte/rechts müssen exakt über den drei
+// Rohr-Spalten liegen.
+const ROCKET_POD_TUBE_SPACING_X = 0.52;
+const ROCKET_POD_MUZZLE_Z = -3.9;
+const ROCKET_POD_MUZZLE_Y = 0.1;
+
+function addRocketPod(gunPivot, accentColor) {
+  const frameMat = new THREE.MeshLambertMaterial({ color: '#3a3a3a' });
+  const tubeMat  = new THREE.MeshLambertMaterial({ color: '#1c1c1c' });
+  const accentMat = new THREE.MeshLambertMaterial({ color: accentColor });
+
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.05, 2.3), frameMat);
+  frame.position.set(0, 0.1, -1.6);
+  frame.castShadow = true;
+  gunPivot.add(frame);
+
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.15, 2.35), accentMat);
+  trim.position.set(0, -0.4, -1.6);
+  gunPivot.add(trim);
+
+  const cols = 3, rows = 2;
+  const spacingY = 0.44;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 2.6, 10), tubeMat);
+      tube.rotation.x = Math.PI / 2;
+      const x = (c - (cols - 1) / 2) * ROCKET_POD_TUBE_SPACING_X;
+      const y = 0.1 + (r - (rows - 1) / 2) * spacingY;
+      tube.position.set(x, y, -2.6);
+      tube.castShadow = true;
+      gunPivot.add(tube);
+    }
+  }
+}
+
+// Zwillings-Maschinenkanone (z.B. Schützenpanzer-Stil): dünnes Doppelrohr
+// statt einer einzelnen MBT-Kanone, am gunPivot – neigt sich also mit dem
+// Höhenwinkel wie die Kanone bei den anderen Panzern.
+function addAutocannonBarrels(gunPivot, barrelColor) {
+  const barrelMat = new THREE.MeshLambertMaterial({ color: barrelColor });
+  const receiverMat = new THREE.MeshLambertMaterial({ color: '#2c2c2c' });
+
+  const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 1.2), receiverMat);
+  receiver.position.set(0, 0.05, -1.0);
+  receiver.castShadow = true;
+  gunPivot.add(receiver);
+
+  [-0.13, 0.13].forEach(xOff => {
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.6, 8), barrelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(xOff, 0.05, -2.1);
+    barrel.castShadow = true;
+    gunPivot.add(barrel);
+  });
+}
+
 // ── Panzer-Baukasten (baut Spieler-Panzer UND Auswahl-Vorschauen) ───────────
 function buildTankMesh(cfg) {
   const tankColorMat = new THREE.MeshLambertMaterial({ color: cfg.bodyColor });
@@ -686,13 +949,10 @@ function buildTankMesh(cfg) {
   bodyMesh.receiveShadow = true;
   tankGroup.add(bodyMesh);
 
+  // Ketten: sichtbare Laufrollen plus oben/unten umlaufendes Kettenband
+  // (addRoadWheels → addTrackBands), keine separate blickdichte Seitenwand
+  // mehr – sonst verdecken die Ketten die Laufrollen komplett.
   const trackMat = new THREE.MeshLambertMaterial({ color: cfg.trackColor });
-  [-2.3, 2.3].forEach(xOffset => {
-    const track = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, cfg.bodySize.d + 0.2), trackMat);
-    track.position.set(xOffset, 0.85, 0);
-    track.castShadow = true;
-    tankGroup.add(track);
-  });
   addRoadWheels(tankGroup, trackMat, cfg.bodySize.d, cfg.wheelStyle);
   addGlacisPlate(bodyMesh, cfg.bodyColor, cfg.bodySize.w, cfg.bodySize.d);
   addEngineDeckDetail(bodyMesh, cfg.trackColor, cfg.bodySize.w, cfg.bodySize.d);
@@ -709,20 +969,40 @@ function buildTankMesh(cfg) {
   turretBoxMesh.castShadow = true;
   turretGroup.add(turretBoxMesh);
 
+  // Höhenwinkel-Pivot: Kanone, Mündungsbauteile und Raketenwerfer hängen alle
+  // an gunPivot und neigen sich gemeinsam per gunPivot.rotation.x (-5°..+20°).
+  // Liegt bei (0,0,0) im Turm-Lokalraum, daher bleiben alle Kindkoordinaten
+  // unverändert gegenüber der bisherigen Befestigung direkt an turretGroup.
+  const gunPivot = new THREE.Group();
+  turretGroup.add(gunPivot);
+
+  const isMlrs = cfg.weaponLoadout === 'mlrs';
+  const isAutocannon = cfg.weaponLoadout === 'autocannon';
+
+  // Kanonen-Mesh bleibt IMMER vorhanden (auch beim Raketenwerfer/Maschinen-
+  // kanonen-Panzer) – überall im Code dient `cannon` als Richtungs-/
+  // Positions-Referenz (matrixWorld) für Schuss- und Zielfernrohr-
+  // Berechnungen. Bei Fahrzeugen mit eigenem Waffenmodul wird sie nur
+  // unsichtbar geschaltet, die sichtbare Waffe ist ein separates Mesh.
   const cannonMat = new THREE.MeshLambertMaterial({ color: cfg.cannonColor });
   const cannonMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 4, 8), cannonMat);
   cannonMesh.rotation.x = Math.PI / 2;
   cannonMesh.position.set(0, 0, -2.5); // -Z = Vorderseite (Tank fährt in -Z)
   cannonMesh.castShadow = true;
-  turretGroup.add(cannonMesh);
+  cannonMesh.visible = !isMlrs && !isAutocannon;
+  gunPivot.add(cannonMesh);
 
-  if (cfg.turretStyle === 'wedge') {
-    addWedgeTurretFront(turretGroup, cfg.cannonColor, cfg.bodyColor, cfg.turretSize.w, cfg.turretSize.d);
+  if (isMlrs) {
+    addRocketPod(gunPivot, cfg.cannonColor);
+  } else if (isAutocannon) {
+    addAutocannonBarrels(gunPivot, cfg.cannonColor);
+  } else if (cfg.turretStyle === 'wedge') {
+    addWedgeTurretFront(gunPivot, cfg.cannonColor, cfg.bodyColor, cfg.turretSize.w, cfg.turretSize.d);
   } else {
-    addTurretMantlet(turretGroup, cfg.cannonColor, cfg.turretSize.d);
+    addTurretMantlet(gunPivot, cfg.cannonColor, cfg.turretSize.d);
   }
   addCommanderCupola(turretGroup, cfg.bodyColor, cfg.trackColor, cfg.turretSize.h);
-  addMuzzleDetails(turretGroup, cfg.cannonColor, cfg.muzzleStyle);
+  if (!isMlrs && !isAutocannon) addMuzzleDetails(gunPivot, cfg.cannonColor, cfg.muzzleStyle);
 
   // Tarnmuster
   const patches = CAMO_PATCH_SPECS.map(spec => {
@@ -731,27 +1011,49 @@ function buildTankMesh(cfg) {
     return { mesh, ci: spec.ci };
   });
 
-  // ── Raketenwerfer-Rohr (links am Turm) ────────────────────────────────────
-  const rocketLauncherMat = new THREE.MeshLambertMaterial({ color: '#333' });
-  const rocketTubeMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.22, 0.22, 2.8, 8),
-    rocketLauncherMat
-  );
-  rocketTubeMesh.rotation.x = Math.PI / 2;
-  rocketTubeMesh.position.set(-1.6, 0.2, -1.6);
-  turretGroup.add(rocketTubeMesh);
-  // Abschlussring vorne
-  const rocketRingMesh = new THREE.Mesh(
-    new THREE.TorusGeometry(0.26, 0.05, 6, 12),
-    rocketLauncherMat
-  );
-  rocketRingMesh.position.set(-1.6, 0.2, -2.95);
-  turretGroup.add(rocketRingMesh);
+  let rocketMuzzleObj;
+  let rocketMuzzlesList = null;
+  if (isMlrs) {
+    // Drei Mündungspunkte (links/mitte/rechts), exakt über den drei
+    // Rohr-Spalten des Pods – tryFireRocketSalvo() feuert jede Salve
+    // reihum aus einem anderen Rohr ab (links → mitte → rechts → links …).
+    const positions = [-ROCKET_POD_TUBE_SPACING_X, 0, ROCKET_POD_TUBE_SPACING_X];
+    rocketMuzzlesList = positions.map(x => {
+      const muzzle = new THREE.Object3D();
+      muzzle.position.set(x, ROCKET_POD_MUZZLE_Y, ROCKET_POD_MUZZLE_Z);
+      gunPivot.add(muzzle);
+      return muzzle;
+    });
+    rocketMuzzleObj = rocketMuzzlesList[1]; // Standard-/Fallback-Referenz: mittleres Rohr
+  } else if (isAutocannon) {
+    // Maschinenkanonen-Panzer hat keine Rakete – kein sichtbares Rohr, nur
+    // ein unsichtbarer Platzhalter, damit `rocketMuzzle` nie undefined ist.
+    rocketMuzzleObj = new THREE.Object3D();
+    rocketMuzzleObj.position.set(0, 0.1, -2.5);
+    gunPivot.add(rocketMuzzleObj);
+  } else {
+    // ── Raketenwerfer-Rohr (links am Turm) ──────────────────────────────────
+    const rocketLauncherMat = new THREE.MeshLambertMaterial({ color: '#333' });
+    const rocketTubeMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.22, 0.22, 2.8, 8),
+      rocketLauncherMat
+    );
+    rocketTubeMesh.rotation.x = Math.PI / 2;
+    rocketTubeMesh.position.set(-1.6, 0.2, -1.6);
+    gunPivot.add(rocketTubeMesh);
+    // Abschlussring vorne
+    const rocketRingMesh = new THREE.Mesh(
+      new THREE.TorusGeometry(0.26, 0.05, 6, 12),
+      rocketLauncherMat
+    );
+    rocketRingMesh.position.set(-1.6, 0.2, -2.95);
+    gunPivot.add(rocketRingMesh);
 
-  // Unsichtbarer Mündungspunkt für Raketen-Abschuss
-  const rocketMuzzleObj = new THREE.Object3D();
-  rocketMuzzleObj.position.set(-1.6, 0.2, -3.1);
-  turretGroup.add(rocketMuzzleObj);
+    // Unsichtbarer Mündungspunkt für Raketen-Abschuss
+    rocketMuzzleObj = new THREE.Object3D();
+    rocketMuzzleObj.position.set(-1.6, 0.2, -3.1);
+    gunPivot.add(rocketMuzzleObj);
+  }
 
   tankGroup.position.set(0, 0, 0);
 
@@ -760,8 +1062,10 @@ function buildTankMesh(cfg) {
     body: bodyMesh,
     turret: turretGroup,
     turretBox: turretBoxMesh,
+    gunPivot,
     cannon: cannonMesh,
     rocketMuzzle: rocketMuzzleObj,
+    rocketMuzzles: rocketMuzzlesList,
     bodyMat: tankColorMat,
     cannonMat,
     trackMat,
@@ -769,9 +1073,21 @@ function buildTankMesh(cfg) {
   };
 }
 
-const playerTankVisuals = buildTankMesh(TANK_TYPES.koenigstiger);
-const { tank, body, turret, turretBox, cannon, rocketMuzzle } = playerTankVisuals;
+// Panzer-Mesh wird bei der Auswahl per rebuildPlayerTank() komplett neu gebaut
+// (nicht nur eingefärbt) – nötig, damit z.B. der Raketenwerfer wirklich einen
+// Raketen-Pod statt einer Kanone zeigt. Die Variablen bleiben `let`, weil
+// überall im Code per Namen (nicht per playerTankVisuals-Objekt) darauf
+// zugegriffen wird und die Referenzen bei einem Rebuild aktualisiert werden.
+let playerTankVisuals = buildTankMesh(TANK_TYPES.koenigstiger);
+let { tank, body, turret, turretBox, gunPivot, cannon, rocketMuzzle, rocketMuzzles } = playerTankVisuals;
 scene.add(tank);
+
+function rebuildPlayerTank(cfg) {
+  scene.remove(tank);
+  playerTankVisuals = buildTankMesh(cfg);
+  ({ tank, body, turret, turretBox, gunPivot, cannon, rocketMuzzle, rocketMuzzles } = playerTankVisuals);
+  scene.add(tank);
+}
 
 
 // ── Krater ─────────────────────────────────────────────────────────────────
@@ -783,7 +1099,7 @@ function createCrater(position) {
   const mat = new THREE.MeshLambertMaterial({ color: '#2a1a0a' });
   const crater = new THREE.Mesh(geo, mat);
   crater.rotation.x = -Math.PI / 2;
-  crater.position.set(position.x, 0.05, position.z);
+  crater.position.set(position.x, getTerrainHeight(position.x, position.z) + 0.05, position.z);
   scene.add(crater);
   craters.push(crater);
   if (craters.length > MAX_CRATERS) {
@@ -985,9 +1301,10 @@ function destroyHouse(house) {
     });
   }
 
-  // Staubwolke
-  spawnSmoke(pos.clone().setY(bh * 0.5), 18, 4.0);
-  spawnParticles(pos.clone().setY(1), 25, 0xaaaaaa, 7, 2.5, 4, 0.25);
+  // Staubwolke (Haus-Grundhöhe berücksichtigen, damit sie auf Hügeln nicht im Boden hängt)
+  const houseGroundY = pos.y - bh / 2;
+  spawnSmoke(pos.clone(), 18, 4.0);
+  spawnParticles(pos.clone().setY(houseGroundY + 1), 25, 0xaaaaaa, 7, 2.5, 4, 0.25);
 
   const dist = pos.distanceTo(tank.position);
   playSound('building_collapse', dist);
@@ -1003,6 +1320,9 @@ function applyHoleDamage(house) {
   const localX = tank.position.x - house.mesh.position.x;
   const localZ = tank.position.z - house.mesh.position.z;
   const isXFace = Math.abs(localX) / (house.bw / 2) > Math.abs(localZ) / (house.bd / 2);
+  // Haus-Grundhöhe (Boden unter dem Haus) statt fester Werte, damit Löcher
+  // und Staub auf Hügeln auf der richtigen Höhe erscheinen.
+  const houseGroundY = house.mesh.position.y - house.bh / 2;
 
   const holeMat = new THREE.MeshLambertMaterial({ color: '#080808', side: THREE.DoubleSide });
   let holeMesh;
@@ -1017,7 +1337,7 @@ function applyHoleDamage(house) {
     holeMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.5, 4.5), holeMat);
     holeMesh.position.set(
       house.mesh.position.x + wallSign * (house.bw / 2 + 0.05),
-      1.75,
+      houseGroundY + 1.75,
       entryZ
     );
   } else {
@@ -1030,7 +1350,7 @@ function applyHoleDamage(house) {
     holeMesh = new THREE.Mesh(new THREE.BoxGeometry(4.5, 3.5, 0.5), holeMat);
     holeMesh.position.set(
       entryX,
-      1.75,
+      houseGroundY + 1.75,
       house.mesh.position.z + wallSign * (house.bd / 2 + 0.05)
     );
   }
@@ -1038,8 +1358,8 @@ function applyHoleDamage(house) {
   scene.add(holeMesh);
   house.holeMesh = holeMesh;
 
-  spawnParticles(house.mesh.position.clone().setY(1.5), 12, 0x999999, 5, 1.5, 9.8, 0.35);
-  spawnSmoke(house.mesh.position.clone().setY(1.5), 5, 2.5);
+  spawnParticles(house.mesh.position.clone().setY(houseGroundY + 1.5), 12, 0x999999, 5, 1.5, 9.8, 0.35);
+  spawnSmoke(house.mesh.position.clone().setY(houseGroundY + 1.5), 5, 2.5);
 }
 
 function checkTankHouseCollisions(dt) {
@@ -1155,6 +1475,37 @@ function fireMG() {
   });
 }
 
+// Maschinenkanone (Autocannon-Fahrzeug): größeres, langsameres Geschoss als
+// das MG (0.14 statt 0.08 Radius, orange statt gelb), 2 Schaden pro Treffer
+// bei 3 Schuss/Sekunde (siehe AUTOCANNON_COOLDOWN). Nutzt wie fireMG() die
+// Kanonen-Referenz für Richtung/Position.
+function fireAutocannon() {
+  const dir = new THREE.Vector3(0, -1, 0);
+  dir.transformDirection(cannon.matrixWorld).normalize();
+
+  const muzzlePos = new THREE.Vector3();
+  cannon.getWorldPosition(muzzlePos);
+  muzzlePos.addScaledVector(dir, 2);
+
+  const geo = new THREE.SphereGeometry(0.14, 6, 6);
+  const mat = new THREE.MeshLambertMaterial({ color: '#ff8c1a' });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(muzzlePos);
+  scene.add(mesh);
+
+  playMGShot();
+
+  projectiles.push({
+    mesh,
+    velocity: dir.multiplyScalar(6),
+    alive: true,
+    distanceTravelled: 0,
+    maxDistance: 200,
+    damage: 2,
+    isShell: false,
+  });
+}
+
 function checkCollision(projectile, targetMesh) {
   const box = new THREE.Box3().setFromObject(targetMesh);
   return box.containsPoint(projectile.mesh.position);
@@ -1177,14 +1528,15 @@ function updateProjectiles(dt) {
       spawnParticles(exhaustPos, 1, 0xaaaaaa, 0.4, 1.0, 0.5, 0.22);
     }
 
-    // Boden
-    if (p.mesh.position.y <= 0) {
+    // Boden (folgt der Hügel-Höhe statt einer festen y=0-Ebene)
+    const groundYHere = getTerrainHeight(p.mesh.position.x, p.mesh.position.z);
+    if (p.mesh.position.y <= groundYHere) {
       if (p.isRocket) {
-        const impactPos = p.mesh.position.clone().setY(0.1);
+        const impactPos = p.mesh.position.clone().setY(groundYHere + 0.1);
         createRocketExplosion(impactPos, p.blastRadius);
       } else if (p.isShell) {
         const impactPos = p.mesh.position.clone();
-        impactPos.y = 0.1;
+        impactPos.y = groundYHere + 0.1;
         createCrater(impactPos);
         createExplosion(impactPos);
       }
@@ -1432,7 +1784,16 @@ function updateKnob(knob, jx, jy) {
   knob.style.transform = `translate(${dx}px, ${dy}px)`;
 }
 
+// Panzerauswahl-/Start-Bildschirm liegen über dem Spiel und müssen mit dem
+// Finger scrollbar bleiben – die globalen Joystick-Handler dürfen dort weder
+// preventDefault() aufrufen noch Touches als Joystick-Eingabe kapern.
+function isBlockingOverlayVisible() {
+  return document.getElementById('tank-select-screen').style.display !== 'none'
+      || document.getElementById('start-screen').style.display !== 'none';
+}
+
 document.addEventListener('touchstart', e => {
+  if (isBlockingOverlayVisible()) return;
   resumeAudio();
   // preventDefault nur wenn kein Button berührt wird – sonst blockiert es Knopf-Klicks auf Mobile
   const hasNonButton = Array.from(e.changedTouches).some(t => t.target.tagName !== 'BUTTON');
@@ -1459,6 +1820,7 @@ document.addEventListener('touchstart', e => {
 }, { passive: false });
 
 document.addEventListener('touchmove', e => {
+  if (isBlockingOverlayVisible()) return;
   e.preventDefault();
   for (const touch of e.changedTouches) {
     let joy, knob;
@@ -1526,6 +1888,7 @@ let cannonCooldownTimer = null;
 const shootBtn = document.getElementById('shoot-btn');
 
 function tryFireCannon() {
+  if (currentWeaponLoadout !== 'standard') return; // Raketenwerfer hat keine Kanone
   const now = performance.now();
   if (now - cannonLastFired < CANNON_COOLDOWN) return;
   cannonLastFired = now;
@@ -1559,6 +1922,54 @@ const ROCKET_COOLDOWN = 8000;
 let rocketLastFired = -ROCKET_COOLDOWN;
 
 const rocketBtn = document.getElementById('btn-rocket');
+
+// ── M270 MLRS: Salven-Raketenwerfer (3 Ladungen à 5 Raketen, laden über Zeit nach) ──
+const ROCKET_SALVO_SIZE     = 5;
+const ROCKET_MAX_CHARGES    = 3;
+const ROCKET_RECHARGE_MS    = 10000; // Zeit bis eine verbrauchte Ladung nachlädt
+const ROCKET_SALVO_STAGGER_MS = 150; // Abstand zwischen den 5 Raketen einer Salve
+
+let rocketCharges = ROCKET_MAX_CHARGES;
+let rocketChargeTimer = 0; // ms seit letztem Ladungsverbrauch (für Nachladen)
+let rocketSalvoFiring = false;
+let rocketPodTubeIndex = 0; // 0=links, 1=Mitte, 2=rechts – zyklisch pro Salve
+
+function updateRocketSalvoUI() {
+  if (rocketSalvoFiring) {
+    rocketBtn.textContent = '🚀 Feuer!';
+    rocketBtn.disabled = true;
+    setWeaponSlotState('rocket', 'active');
+  } else if (rocketCharges <= 0) {
+    rocketBtn.textContent = `⏳ Laden…`;
+    rocketBtn.disabled = true;
+    setWeaponSlotState('rocket', 'cooldown');
+  } else {
+    rocketBtn.textContent = `🚀 Salve (${rocketCharges}/${ROCKET_MAX_CHARGES})`;
+    rocketBtn.disabled = false;
+    setWeaponSlotState('rocket', 'ready');
+  }
+}
+
+function tryFireRocketSalvo() {
+  if (rocketSalvoFiring || rocketCharges <= 0) return;
+  rocketSalvoFiring = true;
+  rocketCharges--;
+  updateRocketSalvoUI();
+
+  // Jede Salve feuert komplett aus einem anderen Rohr: erste Salve links,
+  // zweite mitte, dritte rechts, dann wieder von vorn (immer im Kreis).
+  const muzzles = rocketMuzzles || [rocketMuzzle];
+  const muzzle = muzzles[rocketPodTubeIndex % muzzles.length];
+  rocketPodTubeIndex = (rocketPodTubeIndex + 1) % muzzles.length;
+
+  for (let i = 0; i < ROCKET_SALVO_SIZE; i++) {
+    setTimeout(() => { if (!playerDead) fireRocket(muzzle); }, i * ROCKET_SALVO_STAGGER_MS);
+  }
+  setTimeout(() => {
+    rocketSalvoFiring = false;
+    updateRocketSalvoUI();
+  }, (ROCKET_SALVO_SIZE - 1) * ROCKET_SALVO_STAGGER_MS + 300);
+}
 
 function createRocketExplosion(position, blastRadius) {
   const dist = position.distanceTo(tank.position);
@@ -1615,14 +2026,15 @@ function createRocketExplosion(position, blastRadius) {
   cameraShake(1.5, 600);
 }
 
-function fireRocket() {
+function fireRocket(muzzleOverride) {
   // Richtung = Turm-Zielrichtung (identisch mit Kanone)
   const dir = new THREE.Vector3(0, -1, 0);
   dir.transformDirection(cannon.matrixWorld).normalize();
 
-  // Startposition = Mündung des Raketenwerfer-Rohrs
+  // Startposition = Mündung des Raketenwerfer-Rohrs (beim MLRS wechselt das
+  // Rohr pro Salve reihum, siehe tryFireRocketSalvo())
   const muzzlePos = new THREE.Vector3();
-  rocketMuzzle.getWorldPosition(muzzlePos);
+  (muzzleOverride || rocketMuzzle).getWorldPosition(muzzlePos);
 
   // Raketen-Mesh
   const rktGroup = new THREE.Group();
@@ -1660,6 +2072,11 @@ function fireRocket() {
 
 function tryFireRocket() {
   if (playerDead) return;
+  if (currentWeaponLoadout === 'mlrs') {
+    tryFireRocketSalvo();
+    return;
+  }
+  if (currentWeaponLoadout !== 'standard') return; // Maschinenkanonen-Panzer hat keine Rakete
   const now = performance.now();
   if (now - rocketLastFired < ROCKET_COOLDOWN) return;
   rocketLastFired = now;
@@ -1692,6 +2109,10 @@ rocketBtn.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(
 const MG_COOLDOWN = 150;
 let mgLastFired = 0;
 let mgFiring = false;
+
+// ── Maschinenkanone (Autocannon-Fahrzeug): 2 Schaden, 3 Schuss/Sekunde ──────
+const AUTOCANNON_COOLDOWN = 333; // ≈ 3 Schuss/Sekunde
+let autocannonLastFired = 0;
 
 const btnMG = document.getElementById('btn-mg');
 
@@ -1728,9 +2149,15 @@ function updateScopeCamera() {
   const cannonCenter = new THREE.Vector3();
   cannon.getWorldPosition(cannonCenter);
 
-  // Kameraposition: hinter dem Verschluss, leicht erhöht
-  const camPos = cannonCenter.clone().addScaledVector(dir, -3);
-  camPos.y += 0.2;
+  // Kameraposition: hinter dem Verschluss, deutlich über dem Turmdach.
+  // Bei nur leicht erhöhter Kamera (alte Werte: -3 / +0.2) landete die
+  // Kamera INNERHALB der Turmbox/Kommandantenkuppel – im Zoom (FOV 15°)
+  // füllte dieses nahe Geometrie-Stück den ganzen Bildschirm, sodass man
+  // die Umgebung nicht mehr sah. Der Y-Versatz muss über die höchste
+  // Turmkuppel hinausreichen (Turmhöhe/2 + Kuppel ≈ 0.96 bei der größten
+  // Turmgröße), der Z-Versatz über die Turmbox-Tiefe (±1.25..1.35) hinaus.
+  const camPos = cannonCenter.clone().addScaledVector(dir, -4.5);
+  camPos.y += 1.4;
   camera.position.copy(camPos);
 
   // Blickziel: weit vor der Mündung entlang der Schussrichtung
@@ -1779,12 +2206,6 @@ function buildEnemyTank(bodyColor) {
     group.add(corpus);
 
     const trackMat = new THREE.MeshLambertMaterial({ color: '#222222' });
-    [-2.3, 2.3].forEach(xOff => {
-        const tr = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 6.2), trackMat);
-        tr.position.set(xOff, 0.85, 0);
-        tr.castShadow = true;
-        group.add(tr);
-    });
     addRoadWheels(group, trackMat, 6, 'modern');
     addGlacisPlate(corpus, bodyColor, 4, 6);
     addEngineDeckDetail(corpus, '#222222', 4, 6);
@@ -1945,16 +2366,17 @@ function startGame(difficulty) {
 
 function createWreck(position, type) {
     const wreckColor = new THREE.MeshLambertMaterial({ color: '#1a1a1a' });
+    const groundY = getTerrainHeight(position.x, position.z);
 
     const wBody = new THREE.Mesh(new THREE.BoxGeometry(4, 0.8, 6), wreckColor);
-    wBody.position.set(position.x, 0.4, position.z);
+    wBody.position.set(position.x, groundY + 0.4, position.z);
     wBody.rotation.y = Math.random() * Math.PI * 0.3;
     scene.add(wBody);
 
     const wTurret = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.0, 2.5), wreckColor);
     wTurret.position.set(
         position.x + (Math.random() - 0.5) * 2,
-        0.9,
+        groundY + 0.9,
         position.z + (Math.random() - 0.5) * 2
     );
     wTurret.rotation.y = Math.random() * Math.PI;
@@ -2093,7 +2515,8 @@ function updateEnemyAI(enemy, dt) {
             if (normAngleDiff(enemy.mesh.rotation.y, targetAngle) < Math.PI * 0.5) {
                 enemy.mesh.translateZ(-enemy.speed * 2);
             }
-            enemy.mesh.position.y = 0;
+            enemy.mesh.position.y = getTerrainHeight(enemy.mesh.position.x, enemy.mesh.position.z);
+            applyTerrainTilt(enemy.mesh, enemy.mesh.rotation.y, 3, 2);
         }
     } else if (enemy.state === 'angreifen') {
         // Manöver-Richtung periodisch wechseln (Umkreisen)
@@ -2135,7 +2558,8 @@ function updateEnemyAI(enemy, dt) {
                 enemy.mesh.translateZ(-enemy.speed * 2);
             }
         }
-        enemy.mesh.position.y = 0;
+        enemy.mesh.position.y = getTerrainHeight(enemy.mesh.position.x, enemy.mesh.position.z);
+        applyTerrainTilt(enemy.mesh, enemy.mesh.rotation.y, 3, 2);
 
         // Turm unabhängig auf Spieler richten
         const turretWorldPos = new THREE.Vector3();
@@ -2261,9 +2685,14 @@ let TANK_DECEL     = BASE_TANK_DECEL;
 
 // ── Panzerauswahl ────────────────────────────────────────────────────────────
 let selectedTankType = null;
+// 'standard'   = Kanone+MG+Einzel-Rakete (Königstiger, Leopard, Abrams, T-90, Leclerc)
+// 'mlrs'       = nur Raketen-Salven, kein Kanone/MG (M270 MLRS)
+// 'autocannon' = nur Maschinenkanone (Dauerfeuer wie MG, aber eigene Werte), kein Kanone/Rakete
+let currentWeaponLoadout = 'standard';
 
 function applyTankType(cfg) {
   selectedTankType = cfg.key;
+  currentWeaponLoadout = cfg.weaponLoadout || 'standard';
 
   playerMaxHP = cfg.maxHP;
   playerHP = cfg.maxHP;
@@ -2273,15 +2702,45 @@ function applyTankType(cfg) {
   TANK_ACCEL     = BASE_TANK_ACCEL * cfg.speedFactor;
   TANK_DECEL     = BASE_TANK_DECEL * cfg.speedFactor;
 
-  playerTankVisuals.bodyMat.color.set(cfg.bodyColor);
-  playerTankVisuals.cannonMat.color.set(cfg.cannonColor);
-  playerTankVisuals.trackMat.color.set(cfg.trackColor);
-  playerTankVisuals.patches.forEach(p => p.mesh.material.color.set(cfg.camoColors[p.ci]));
-
   document.getElementById('tank-name').textContent = `${cfg.icon} ${cfg.label}`;
+
+  // Jedes Spezial-Fahrzeug hat nur EINE Waffe – die jeweils anderen beiden
+  // Waffen-Buttons/HUD-Slots existieren für dieses Fahrzeug nicht und werden
+  // ausgeblendet statt wirkungslos angezeigt zu werden.
+  const hasCannon = currentWeaponLoadout === 'standard';
+  const hasRocket = currentWeaponLoadout === 'standard' || currentWeaponLoadout === 'mlrs';
+  const hasMgSlot = currentWeaponLoadout === 'standard' || currentWeaponLoadout === 'autocannon';
+
+  shootBtn.style.display  = hasCannon ? 'flex' : 'none';
+  rocketBtn.style.display = hasRocket ? 'flex' : 'none';
+  btnMG.style.display     = hasMgSlot ? 'flex' : 'none';
+  weaponSlots.cannon.style.display = shootBtn.style.display;
+  weaponSlots.rocket.style.display = rocketBtn.style.display;
+  weaponSlots.mg.style.display     = btnMG.style.display;
+
+  // Das MG-Bedienelement (Knopf halten = Dauerfeuer) wird beim Maschinen-
+  // kanonen-Panzer wiederverwendet, nur mit anderer Beschriftung/Werten.
+  const mgLabel = currentWeaponLoadout === 'autocannon' ? 'MK' : 'MG';
+  btnMG.innerHTML = `&#x1F52B; ${mgLabel}`;
+  const mgSlotLabel = weaponSlots.mg?.querySelector('.weapon-slot-label');
+  if (mgSlotLabel) mgSlotLabel.textContent = mgLabel;
+  if (hasMgSlot) setWeaponSlotState('mg', 'ready');
+
+  if (currentWeaponLoadout === 'mlrs') {
+    rocketCharges = ROCKET_MAX_CHARGES;
+    rocketChargeTimer = 0;
+    rocketSalvoFiring = false;
+    rocketPodTubeIndex = 0;
+    updateRocketSalvoUI();
+  } else if (hasRocket) {
+    rocketBtn.disabled = false;
+    rocketBtn.innerHTML = '&#x1F680; Rakete';
+    setWeaponSlotState('rocket', 'ready');
+  }
 
   window.__testSelectedTank = cfg.key;
   window.__testTankMaxSpeed = TANK_MAX_SPEED;
+  window.__testWeaponLoadout = currentWeaponLoadout;
 }
 
 // ── Panzerauswahl-Bildschirm: rotierende 3D-Vorschauen ──────────────────────
@@ -2318,10 +2777,11 @@ function buildTankPreview(canvasId, cfg) {
   return { previewScene, previewCamera, previewRenderer, tank: built.tank, resize };
 }
 
-const tankPreviews = [
-  buildTankPreview('preview-koenigstiger', TANK_TYPES.koenigstiger),
-  buildTankPreview('preview-leopard', TANK_TYPES.leopard),
-];
+const TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma'];
+
+const tankPreviews = TANK_SELECT_ORDER.map(key =>
+  buildTankPreview(`preview-${key}`, TANK_TYPES[key])
+);
 
 function animateTankPreviews() {
   previewRafId = requestAnimationFrame(animateTankPreviews);
@@ -2341,24 +2801,34 @@ function stopTankPreviews() {
 }
 
 function selectTank(typeKey) {
-  applyTankType(TANK_TYPES[typeKey]);
+  const cfg = TANK_TYPES[typeKey];
+  rebuildPlayerTank(cfg);
+  applyTankType(cfg);
   document.getElementById('tank-select-screen').style.display = 'none';
   stopTankPreviews();
 }
 
-['koenigstiger', 'leopard'].forEach(typeKey => {
+TANK_SELECT_ORDER.forEach(typeKey => {
   const btn = document.getElementById(`btn-select-${typeKey}`);
   btn.addEventListener('click', () => { resumeAudio(); selectTank(typeKey); });
   btn.addEventListener('touchend', e => { e.preventDefault(); resumeAudio(); selectTank(typeKey); }, { passive: false });
 });
 const turnSpeed      = 0.03;
 let   tankCurrentSpeed = 0;
+let   tankYaw = 0; // separat verfolgt statt per rotateY() (Quaternion), damit
+                    // Gefälle-Neigung (Pitch/Roll) jeden Frame sauber und ohne
+                    // Drift aus Yaw + Hangwinkel neu zusammengesetzt werden kann
 
 // Eingabe-Glättung (Drehung/Turm), damit schnelle Joystick-Richtungswechsel
 // nicht ruckartig, sondern weich ankommen.
 const INPUT_SMOOTH_RATE = 18; // je höher, desto direkter (weniger Trägheit)
 let smoothRotY = 0;
 let smoothTurretY = 0;
+
+// ── Kanonen-Höhenwinkel (vertikales Zielen, Phase 6) ────────────────────────
+const GUN_PITCH_MIN = -5  * Math.PI / 180; // leicht runter
+const GUN_PITCH_MAX =  20 * Math.PI / 180; // deutlich hoch
+let smoothGunPitch = 0;
 
 // ── Animation Loop ─────────────────────────────────────────────────────────
 let lastTime = performance.now();
@@ -2388,6 +2858,14 @@ function animate() {
   const _cd = new THREE.Vector3(0, 1, 0);
   _cd.transformDirection(cannon.matrixWorld);
   window.__testCannonDir = { x: _cd.x, y: _cd.y, z: _cd.z };
+  window.__testGunPitch = gunPivot.rotation.x;
+  window.__testTankRotation = { x: tank.rotation.x, y: tank.rotation.y, z: tank.rotation.z };
+  window.__testRocketCharges = rocketCharges;
+  window.__testRocketSalvoFiring = rocketSalvoFiring;
+  window.__testRocketPodTubeIndex = rocketPodTubeIndex;
+  window.__testRocketMuzzleLocalXs = rocketMuzzles ? rocketMuzzles.map(m => m.position.x) : null;
+  window.__testTerrainHeight = (x, z) => getTerrainHeight(x, z);
+  window.__testBridgeXs = BRIDGE_XS;
 
   if (gamePaused) {
     renderer.render(scene, camera);
@@ -2398,6 +2876,7 @@ function animate() {
   let moveY = 0;
   let rotY  = 0;
   let turretY = 0;
+  let pitchInput = 0;
 
   if (!playerDead) {
     if (keys['w'] || keys['arrowup'])    moveY += 1;
@@ -2406,6 +2885,8 @@ function animate() {
     if (keys['d'] || keys['arrowright']) rotY  -= 1;
     if (keys['q']) turretY += 1;
     if (keys['e']) turretY -= 1;
+    if (keys['t']) pitchInput += 1;
+    if (keys['g']) pitchInput -= 1;
 
     if (joystickLeft.active) {
       moveY = -joystickLeft.y;
@@ -2413,16 +2894,25 @@ function animate() {
     }
     if (joystickRight.active) {
       turretY = -joystickRight.x;
+      pitchInput = -joystickRight.y;
     }
 
-    // MG auto-fire
-    if (keys['f'] || mgFiring) {
+    // MG-Dauerfeuer (Standard-Panzer) bzw. Maschinenkanonen-Dauerfeuer
+    // (Autocannon-Fahrzeug) – gleiches Bedienelement, andere Werte.
+    // Raketenwerfer (MLRS) hat weder MG noch Maschinenkanone.
+    if ((keys['f'] || mgFiring) && currentWeaponLoadout === 'standard') {
       setWeaponSlotState('mg', 'active');
       if (now - mgLastFired >= MG_COOLDOWN) {
         mgLastFired = now;
         fireMG();
       }
-    } else {
+    } else if ((keys['f'] || mgFiring) && currentWeaponLoadout === 'autocannon') {
+      setWeaponSlotState('mg', 'active');
+      if (now - autocannonLastFired >= AUTOCANNON_COOLDOWN) {
+        autocannonLastFired = now;
+        fireAutocannon();
+      }
+    } else if (currentWeaponLoadout === 'standard' || currentWeaponLoadout === 'autocannon') {
       setWeaponSlotState('mg', 'ready');
     }
   }
@@ -2441,11 +2931,32 @@ function animate() {
   smoothRotY    += (rotY - smoothRotY) * smoothing;
   smoothTurretY += (turretY - smoothTurretY) * smoothing;
 
-  tank.rotateY(turnSpeed * smoothRotY);
-  tank.position.y = 0;
+  tankYaw += turnSpeed * smoothRotY;
+  // Panzer "klebt" am Boden: Höhe folgt jeden Frame der Hügel-Höhenkarte,
+  // und die Wanne neigt sich passend zur Hangneigung (Pitch/Roll) statt
+  // immer waagerecht über dem Gelände zu stehen.
+  tank.position.y = getTerrainHeight(tank.position.x, tank.position.z);
+  applyTerrainTilt(tank, tankYaw, 3, 2);
 
   // 3. Turm (im Zoom-Modus verlangsamt)
   turret.rotateY(turnSpeed * smoothTurretY * (scopeActive ? 0.04 : 1.0));
+
+  // 3b. Kanonen-Höhenwinkel (Kanone, MG & Rakete pitchen gemeinsam über gunPivot)
+  smoothGunPitch += (pitchInput - smoothGunPitch) * smoothing;
+  gunPivot.rotation.x = Math.min(
+    GUN_PITCH_MAX,
+    Math.max(GUN_PITCH_MIN, gunPivot.rotation.x + turnSpeed * smoothGunPitch * (scopeActive ? 0.04 : 1.0))
+  );
+
+  // 3c. Raketen-Salven-Nachladen (nur Raketenwerfer)
+  if (currentWeaponLoadout === 'mlrs' && rocketCharges < ROCKET_MAX_CHARGES) {
+    rocketChargeTimer += dt * 1000;
+    if (rocketChargeTimer >= ROCKET_RECHARGE_MS) {
+      rocketChargeTimer -= ROCKET_RECHARGE_MS;
+      rocketCharges++;
+      updateRocketSalvoUI();
+    }
+  }
 
   // 4. Projektile
   updateProjectiles(dt);
