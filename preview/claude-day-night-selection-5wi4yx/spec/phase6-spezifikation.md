@@ -127,7 +127,9 @@ raycasten:
   `smoothstep`-Überblendung auf 0, damit Brücken/Straßen nicht im Gelände
   versinken oder schweben
 - `getTerrainHeight(x, z) = baseHillHeight(x, z) * distanceToFlatZones(x, z)`
-- Die Boden-`PlaneGeometry` bekommt 100×100 Segmente; `applyTerrainToGround()`
+- Die Boden-`PlaneGeometry` bekommt 100×100 Segmente (mit dem verdoppelten
+  Schlachtfeld inzwischen 200×200, siehe "Schlachtfeld verdoppelt" unten);
+  `applyTerrainToGround()`
   verschiebt jeden Vertex per `getTerrainHeight()` und ruft
   `computeVertexNormals()` für korrekte Beleuchtung auf den Hügeln auf
 
@@ -135,8 +137,10 @@ raycasten:
 Die Nord-Süd-Verbindungsstraßen liefen ursprünglich bei x=-200/0/200,
 die drei Brücken aber bei x=-85/10/90 – wer der Straße folgte, landete nie
 auf einer Brücke. Beide Positionslisten sind jetzt eine gemeinsame Konstante
-(`BRIDGE_XS = [-85, 10, 90]`), sodass Brücken und Verbindungsstraßen exakt
-übereinanderliegen.
+(damals `BRIDGE_XS = [-85, 10, 90]`, inzwischen mit dem verdoppelten
+Schlachtfeld auf `[-170, 20, 180]` skaliert – siehe Abschnitt
+"Schlachtfeld verdoppelt" unten), sodass Brücken und Verbindungsstraßen
+exakt übereinanderliegen.
 
 **Y-Position folgt dem Gelände** (statt Raycast: direkte Auswertung derselben
 Höhenfunktion, jeden Frame neu):
@@ -169,6 +173,9 @@ Raketenwerfer und Höhenwinkel-Pivot funktionieren dadurch automatisch mit.
 | Leclerc | 1.55× | 0.465 | 90 |
 | M270 MLRS | 1.2× | 0.36 | 65 |
 | Puma | 1.35× | 0.405 | 85 |
+| AT 8 | 0.55× | 0.165 | 170 |
+| Panzerwagen Vickers | 1.5× | 0.45 | 60 |
+| Panzer Maus | 0.45× | 0.135 | 210 |
 
 Wie in Phase 5 wird Panzerung ausschließlich als Max-HP abgebildet, kein
 separater Schadensreduktionsfaktor. Waffen-Werte (Schaden/Cooldown von
@@ -177,10 +184,10 @@ Qualitätskriterien für Phase 6 vorgesehen. M270 MLRS und Puma (siehe unten)
 sind davon ausgenommen: beide haben nur jeweils eine einzige Spezialwaffe
 (Raketen-Salven bzw. Maschinenkanone) statt Kanone+MG+Rakete.
 
-`TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma']`
+`TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma', 'at8', 'vickers', 'maus']`
 steuert sowohl die Vorschau-Erzeugung als auch die Button-Verknüpfung im
 Auswahl-Bildschirm zentral, damit neue Panzer an einer Stelle ergänzt werden
-können. Die 7 Karten laufen im bestehenden Flex-Wrap-Layout
+können. Die 10 Karten laufen im bestehenden Flex-Wrap-Layout
 (`#tank-select-cards`) um und werden bei Bedarf über das bereits vorhandene
 `overflow-y: auto` auf `#tank-select-screen` gescrollt (kein zusätzlicher
 Pfeil-Scroller nötig).
@@ -317,6 +324,7 @@ möglichen Browser-Leiste landet.
 | `__testRocketPodTubeIndex` | number | Index (0/1/2) des Rohrs, aus dem die NÄCHSTE Salve kommt |
 | `__testRocketMuzzleLocalXs` | number[] \| null | Lokale X-Positionen der 3 Rohr-Mündungen (nur MLRS, sonst null) |
 | `__testTimeOfDay` | 'day' \| 'night' | Aktuell gewählte/angewendete Tageszeit (siehe unten) |
+| `__testWeather` | 'clear' \| 'rain' \| 'fog' | Aktuell gewähltes/angewendetes Wetter (siehe unten) |
 
 ### Bugfix Panzerketten (Nutzer-Feedback)
 
@@ -351,30 +359,92 @@ Zuweisung (`enemy.mesh.rotation.y = …`), dort war keine Umstellung nötig.
 
 Gilt für Spieler- und Gegner-Panzer (nicht für Wracks/Trümmer).
 
-### Tag/Nacht-Auswahl (Nutzer-Feedback)
+### Tag/Nacht-Auswahl & Wetter-Auswahl (Nutzer-Feedback)
 
-Auf dem Start-Screen (Schwierigkeitsauswahl) gibt es jetzt eine Tageszeit-
-Auswahl mit zwei Buttons (`#btn-time-day`, `#btn-time-night`). Standard ist
-Tag. Ein Klick wirkt sofort als Live-Vorschau, da die 3D-Szene hinter dem
-halbtransparenten Overlay weiterrendert.
+Auf dem Start-Screen (Schwierigkeitsauswahl) gibt es zwei unabhängige
+Auswahlreihen: Tageszeit (`#btn-time-day`, `#btn-time-night`; Standard Tag)
+und Wetter (`#btn-weather-clear`, `#btn-weather-rain`, `#btn-weather-fog`;
+Standard Klar). Ein Klick wirkt sofort als Live-Vorschau, da die 3D-Szene
+hinter dem halbtransparenten Overlay weiterrendert.
 
-`applyTimeOfDay(mode)` setzt anhand von `TIME_OF_DAY_CONFIGS.day`/`.night`:
-- `scene.background` und `scene.fog` (Farbe, Nah-/Fern-Distanz – Nacht hat
-  kürzere Sichtweite: 80–420 statt 150–700)
+Da beide Auswahlen gleichzeitig auf Himmel/Nebel/Licht wirken, würde eine
+getrennte, multiplikative Verrechnung (Zeit-Wert × Wetter-Faktor) sich bei
+ungünstigen Kombinationen leicht gegenseitig kaputtrechnen (z.B. Nacht ×
+Nebel zu komplett schwarz oder zu hell). Stattdessen definiert
+`ENVIRONMENT_CONFIGS[zeit][wetter]` alle 6 Kombinationen (Tag/Nacht ×
+Klar/Regen/Nebel) explizit mit fertigen Werten für:
+- `scene.background` und `scene.fog` (Farbe, Nah-/Fern-Distanz – Regen und
+  vor allem Nebel verkürzen die Sichtweite deutlich gegenüber Klar)
 - `hemiLight` (Himmel-/Boden-Farbe, Intensität)
 - `ambient`-Intensität
-- `dirLight` (Farbe, Intensität – Nacht wirkt wie kühles Mondlicht statt
-  warmem Sonnenlicht)
+- `dirLight` (Farbe, Intensität – Regen/Nebel dimmen und entsättigen das
+  Sonnen-/Mondlicht)
+- `rain` (boolean – steuert die Sichtbarkeit der Regen-Partikel, siehe unten)
 
-Die aktive Auswahl bleibt bis zum Spielstart bestehen und wird über
+`applyTimeOfDay(mode)` und `applyWeather(mode)` setzen jeweils nur ihre
+eigene Auswahl-Variable (`selectedTimeOfDay`/`selectedWeather`) und rufen
+danach gemeinsam `applyEnvironment()` auf, das den passenden Eintrag aus
+`ENVIRONMENT_CONFIGS` anwendet. Es wird **keine** eigene Mond-/Sterne-/
+Wolken-Geometrie gebaut, nur Licht-/Himmel-/Nebel-Werte geändert – das
+reicht für die gewünschte Stimmungs-Auswahl.
+
+**Regen-Partikel:** Bei Wetter "Regen" wird zusätzlich `rainPoints`
+(`THREE.Points`, 500 Partikel) sichtbar geschaltet. Die Partikel liegen in
+einer 200×100×200 großen Box, die in X/Z immer der Kamera folgt (bleibt so
+unabhängig von der Kartengröße immer um den Spieler herum) und fallen mit
+konstanter Geschwindigkeit (55 Einheiten/s) nach unten; erreicht ein
+Partikel Y=0, wird es oben (Y=100) neu eingesetzt – kein Partikel-Pooling
+nötig, da die Anzahl konstant bleibt. `updateRain(dt)` läuft jeden Frame in
+der Haupt-Loop.
+
+Beide Auswahlen bleiben bis zum Spielstart bestehen und werden über
 `classList.toggle('active', …)` an den Buttons sichtbar gemacht (analog zum
-bestehenden `.weapon-slot`/`btnScope`-Muster). Es werden **keine** eigene
-Mond-/Sterne-Geometrie oder Scheinwerfer gebaut – nur Licht-/Himmel-/
-Nebel-Werte geändert, das reicht für die gewünschte Stimmungs-Auswahl.
+bestehenden `.weapon-slot`/`btnScope`-Muster; kein Reset beim Wechsel
+zwischen Panzerauswahl und Start-Screen). Test-Hooks: `__testTimeOfDay` und
+`__testWeather` (siehe obige Tabelle).
 
-Die aktive Auswahl bleibt bis zum Spielstart bestehen (kein Reset beim
-Wechsel zwischen Panzerauswahl und Start-Screen). Test-Hook: siehe
-`__testTimeOfDay` in obiger Tabelle.
+### 3 weitere Panzertypen: AT 8, Panzerwagen Vickers, Panzer Maus (Nutzer-Feedback)
+
+Wie schon Abrams/T-90/Leclerc in Teil 3 sind auch diese drei neuen
+`TANK_TYPES`-Einträge reine Daten – derselbe `buildTankMesh()`-Baukasten,
+kein neuer Geometrie-Code nötig. Alle drei haben `weaponLoadout: 'standard'`
+(Kanone+MG+Rakete wie die anderen 8 Standard-Panzer).
+
+| Panzer | Vorbild/Thema | Charakteristik |
+|---|---|---|
+| AT 8 | Britisches WWII-Durchbruchspanzer-Projekt (Nuffield-AT-Serie, Vorstufe zum A39 Tortoise) | Sehr langsam, sehr stark gepanzert |
+| Panzerwagen Vickers | Vickers-Armstrong-Exportpanzer der Zwischenkriegszeit | Sehr schnell, schwach gepanzert |
+| Panzer Maus | Panzer VIII Maus (schwerster je gebauter Panzer) | Extrem langsam, am stärksten gepanzert von allen 10 Fahrzeugen |
+
+`wheelStyle`/`muzzleStyle`/`turretStyle` verwenden ausschließlich bereits
+vorhandene Baukasten-Varianten (`overlapping`/`modern`,
+`doubleBaffle`/`sleeve`, `roundedMantlet`/`wedge`) – keine davon ist neu.
+Panzer Maus bekommt ein leicht größeres `bodySize`/`turretSize` als
+Königstiger (bisher größtes Fahrzeug), aber bewusst nur moderat größer
+(nicht maßstabsgetreu zum ca. 200-Tonnen-Original), damit die feste
+Zielfernrohr-Kamera-Offset (siehe Abschnitt "Zielfernrohr-Kamera" oben)
+weiterhin über der Turmkuppel bleibt.
+
+### Schlachtfeld verdoppelt (Nutzer-Feedback)
+
+Alle kartenbezogenen Konstanten wurden linear ×2 skaliert (Fläche damit
+×4): Boden-`PlaneGeometry` 1000×1000 → 2000×2000 (Segmente ebenfalls
+100×100 → 200×200, damit die Terrain-Auflösung pro Einheit gleich bleibt),
+Fluss-/Sandbank-Ebenen, Hauptstraßen (±500 → ±1000), `BRIDGE_XS`
+(`[-85, 10, 90]` → `[-170, 20, 180]`), Kamera-Fernebene (1000 → 2000),
+Minimap-Weltskala (500 → 1000 Einheiten pro 120px) sowie
+Basis-Nebeldistanzen (Tag/Klar jetzt 300–1400 statt 150–700, volle Matrix
+siehe oben).
+
+Objekt-Spawn-Radien (Häuser/Bäume/Büsche/Gegner) sind ebenfalls verdoppelt,
+die Objekt-**Anzahl** ebenfalls (Häuser 10→20, verteilte Bäume 30→60,
+Wald-Bäume je Ecke 55→110 bei doppeltem Radius, Büsche 50→100) – bei 4×
+Fläche ergibt das gegenüber vorher die halbe Dichte, hält die Karte damit
+spürbar größer, ohne leer zu wirken oder die Objekt-Anzahl zu
+vervierfachen (Performance). Details siehe Phase-3-Spezifikation,
+Abschnitt "Objekt-Mengen (Spawn)". Die Gegner-**Anzahl** pro
+Schwierigkeitsgrad bleibt unverändert (weiterhin 5) – nur ihr
+Spawn-Radius wuchs mit.
 
 ### Bekannte Einschränkungen / Offene Punkte
 
@@ -382,9 +452,12 @@ Wechsel zwischen Panzerauswahl und Start-Screen). Test-Hook: siehe
 - Gegner-Panzer neigen ihre Kanone nicht (kein `gunPivot`) – nur relevant für
   die visuelle Kanonenausrichtung, die Ziel-Trefferlogik der Gegner-KI war
   davon nicht betroffen
-- Die 5 Standard-Panzer (Königstiger/Leopard/Abrams/T-90/Leclerc) teilen
-  weiterhin identische Kanone/MG/Rakete-Werte (siehe "Was Phase 6 noch NICHT
-  enthält"); MLRS und Puma haben je eine eigene Spezialwaffe mit eigenen Werten
+- Die 8 Standard-Panzer (Königstiger/Leopard/Abrams/T-90/Leclerc/AT 8/
+  Vickers/Maus) teilen weiterhin identische Kanone/MG/Rakete-Werte (siehe
+  "Was Phase 6 noch NICHT enthält"); MLRS und Puma haben je eine eigene
+  Spezialwaffe mit eigenen Werten
+- Regen-Partikel sind ein reiner Sichteffekt ohne Physik/Kollision und
+  wirken sich nicht auf Sicht-/Trefferberechnung der Gegner-KI aus
 
 ---
 

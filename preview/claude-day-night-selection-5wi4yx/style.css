@@ -253,8 +253,8 @@ html, body {
   background: #44aa44;
 }
 
-/* ── Start-Screen: Tageszeit-Auswahl ─────────────────────────────────────── */
-.btn-time.active {
+/* ── Start-Screen: Tageszeit- & Wetter-Auswahl ───────────────────────────── */
+.btn-time.active, .btn-weather.active {
   border-color: #fff !important;
   transform: scale(1.05);
 }

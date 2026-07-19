@@ -40,12 +40,12 @@ claude/phase-3-gegner-3tHAq
 
 | Feature | Wert / Detail |
 |---|---|
-| Karten-Größe | 1000 × 1000 Einheiten |
-| Sichtweite (Fog) | 150 – 700 |
+| Karten-Größe | 2000 × 2000 Einheiten (Nutzer-Feedback: Schlachtfeld verdoppelt, war 1000 × 1000) |
+| Sichtweite (Fog) | Abhängig von Tageszeit/Wetter (Basis Tag/Klar: 300 – 1400) – volle 2×3-Matrix siehe Phase-6-Spezifikation, Abschnitt "Tag/Nacht-Auswahl" bzw. "Wetter-Auswahl" |
 | Fluss | Z = −30, Breite 20 Einh., Blau `#1a5c8a`, mit Sandbänken |
-| Brücken | 3 Stück bei X = −85 / +10 / +90, Betondecke + Geländer + Pfeiler |
+| Brücken | 3 Stück bei X = −170 / +20 / +180, Betondecke + Geländer + Pfeiler |
 | Straßennetz | 2 Hauptstraßen (Fluss-Parallel) + 3 N/S-Straßen + Haus-Zufahrten |
-| Wälder (3 Ecken) | NW / NO / SO: je 55 Bäume, Radius 90 |
+| Wälder (3 Ecken) | NW / NO / SO: je 110 Bäume, Radius 180 |
 | Spawn-Sperrzone | Häuser/Bäume/Büsche/Gegner spawnen nicht im Flussbereich |
 
 ---
@@ -98,11 +98,16 @@ angreifen:
 
 | Objekt | Anzahl | Min-Abstand Zentrum | Spawn-Radius |
 |--------|--------|---------------------|--------------|
-| Häuser | 10 | 30 | 380 |
-| Bäume (verteilt) | 30 | 15 | 400 |
-| Bäume (je Wald) | 55 | – | 90 (pro Ecke) |
-| Büsche | 50 | 10 | 420 |
-| Gegner | 5 | 100 (Spieler) / 30 (voneinander) | 400 |
+| Häuser | 20 | 30 | 760 |
+| Bäume (verteilt) | 60 | 15 | 800 |
+| Bäume (je Wald) | 110 | – | 180 (pro Ecke) |
+| Büsche | 100 | 10 | 840 |
+| Gegner | 5 | 200 (Spieler) / 30 (voneinander) | 800 |
+
+Alle Werte mit dem Schlachtfeld verdoppelt (Nutzer-Feedback), Objekt-Anzahl
+ebenfalls verdoppelt um die Kartendichte in etwa zu erhalten (bei 4×
+Fläche also die Hälfte der ursprünglichen Dichte). Die Gegner-Anzahl pro
+Schwierigkeitsgrad (siehe oben) bleibt unverändert.
 
 ---
 
