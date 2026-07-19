@@ -2959,7 +2959,21 @@ function applyTankType(cfg) {
 }
 
 // ── Panzerauswahl-Bildschirm: rotierende 3D-Vorschauen ──────────────────────
+// Ein WebGLRenderer PRO Panzer-Karte hätte bei 10 Fahrzeugen (+ 1 Haupt-
+// Renderer) 11 gleichzeitige WebGL-Kontexte gebraucht – viele Browser
+// (v.a. Safari/mobil) begrenzen das auf ~8, wodurch die zuletzt erzeugten
+// Kontexte (praktisch immer die zuletzt ergänzten Panzer) stillschweigend
+// fehlschlagen: leere Vorschau, Karte technisch aber vorhanden (Nutzer-
+// Feedback: "bei den neuen Panzern keine Vorschau, nicht auswählbar").
+// Fix: EIN gemeinsamer, unsichtbarer WebGLRenderer rendert nacheinander
+// jede Panzer-Szene; das Ergebnis wird per drawImage() auf die jeweils
+// sichtbare <canvas> (2D-Kontext) kopiert. Nur noch 2 WebGL-Kontexte
+// insgesamt (Hauptspiel + dieser eine geteilte Vorschau-Renderer),
+// unabhängig von der Anzahl der Panzer.
 let previewRafId = null;
+
+const sharedPreviewCanvas = document.createElement('canvas');
+const sharedPreviewRenderer = new THREE.WebGLRenderer({ canvas: sharedPreviewCanvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
 
 function buildTankPreview(canvasId, cfg) {
   const canvas = document.getElementById(canvasId);
@@ -2975,21 +2989,10 @@ function buildTankPreview(canvasId, cfg) {
   previewCamera.position.set(0, 3.2, 9);
   previewCamera.lookAt(0, 1, 0);
 
-  const previewRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
-  previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-
   const built = buildTankMesh(cfg);
   previewScene.add(built.tank);
 
-  function resize() {
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    if (w === 0 || h === 0) return;
-    previewRenderer.setSize(w, h, false);
-    previewCamera.aspect = w / h;
-    previewCamera.updateProjectionMatrix();
-  }
-
-  return { previewScene, previewCamera, previewRenderer, tank: built.tank, resize };
+  return { previewScene, previewCamera, tank: built.tank, canvas, ctx2d: canvas.getContext('2d') };
 }
 
 const TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma', 'at8', 'vickers', 'maus'];
@@ -3000,10 +3003,24 @@ const tankPreviews = TANK_SELECT_ORDER.map(key =>
 
 function animateTankPreviews() {
   previewRafId = requestAnimationFrame(animateTankPreviews);
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
   for (const p of tankPreviews) {
-    p.resize();
+    const w = p.canvas.clientWidth, h = p.canvas.clientHeight;
+    if (w === 0 || h === 0) continue;
     p.tank.rotation.y += 0.012;
-    p.previewRenderer.render(p.previewScene, p.previewCamera);
+
+    sharedPreviewRenderer.setPixelRatio(pixelRatio);
+    sharedPreviewRenderer.setSize(w, h, false);
+    p.previewCamera.aspect = w / h;
+    p.previewCamera.updateProjectionMatrix();
+    sharedPreviewRenderer.render(p.previewScene, p.previewCamera);
+
+    if (p.canvas.width !== sharedPreviewCanvas.width || p.canvas.height !== sharedPreviewCanvas.height) {
+      p.canvas.width = sharedPreviewCanvas.width;
+      p.canvas.height = sharedPreviewCanvas.height;
+    }
+    p.ctx2d.clearRect(0, 0, p.canvas.width, p.canvas.height);
+    p.ctx2d.drawImage(sharedPreviewCanvas, 0, 0);
   }
 }
 animateTankPreviews();
