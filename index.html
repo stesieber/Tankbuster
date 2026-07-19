@@ -187,6 +187,54 @@
         <button class="btn-select-tank" id="btn-select-puma">Ausw&#228;hlen</button>
       </div>
 
+      <div class="tank-card" id="tank-card-at8">
+        <canvas class="tank-preview-canvas" id="preview-at8"></canvas>
+        <h2 class="tank-card-name">&#x1F422; AT 8</h2>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Geschwindigkeit</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:22%"></div></div>
+          <span class="tank-stat-value">Sehr langsam</span>
+        </div>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Panzerung</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:90%"></div></div>
+          <span class="tank-stat-value">Stark</span>
+        </div>
+        <button class="btn-select-tank" id="btn-select-at8">Ausw&#228;hlen</button>
+      </div>
+
+      <div class="tank-card" id="tank-card-vickers">
+        <canvas class="tank-preview-canvas" id="preview-vickers"></canvas>
+        <h2 class="tank-card-name">&#x1F981; Panzerwagen Vickers</h2>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Geschwindigkeit</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:95%"></div></div>
+          <span class="tank-stat-value">Sehr schnell</span>
+        </div>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Panzerung</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:20%"></div></div>
+          <span class="tank-stat-value">Schwach</span>
+        </div>
+        <button class="btn-select-tank" id="btn-select-vickers">Ausw&#228;hlen</button>
+      </div>
+
+      <div class="tank-card" id="tank-card-maus">
+        <canvas class="tank-preview-canvas" id="preview-maus"></canvas>
+        <h2 class="tank-card-name">&#x1F42D; Panzer Maus</h2>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Geschwindigkeit</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:12%"></div></div>
+          <span class="tank-stat-value">Extrem langsam</span>
+        </div>
+        <div class="tank-stat-row">
+          <span class="tank-stat-label">Panzerung</span>
+          <div class="stat-bar"><div class="stat-fill" style="width:100%"></div></div>
+          <span class="tank-stat-value">Sehr stark</span>
+        </div>
+        <button class="btn-select-tank" id="btn-select-maus">Ausw&#228;hlen</button>
+      </div>
+
     </div>
   </div>
 
@@ -205,6 +253,18 @@
       <button id="btn-time-night" class="btn-time" style="width:105px; padding:10px 0; font-size:1rem; font-weight:bold;
               background:#1a2340; color:#fff; border:2px solid transparent; border-radius:10px; cursor:pointer;
               box-shadow:0 3px 8px rgba(0,0,0,0.5);">&#x1F319; Nacht</button>
+    </div>
+    <p style="font-size:1.1rem; opacity:0.85; margin:0;">Wetter w&#228;hlen:</p>
+    <div id="weather-select" style="display:flex; gap:10px; margin-bottom:8px;">
+      <button id="btn-weather-clear" class="btn-weather active" style="width:80px; padding:10px 0; font-size:1rem; font-weight:bold;
+              background:#2e7d32; color:#fff; border:2px solid transparent; border-radius:10px; cursor:pointer;
+              box-shadow:0 3px 8px rgba(0,0,0,0.5);">&#x2600;&#xFE0F; Klar</button>
+      <button id="btn-weather-rain" class="btn-weather" style="width:80px; padding:10px 0; font-size:1rem; font-weight:bold;
+              background:#37474f; color:#fff; border:2px solid transparent; border-radius:10px; cursor:pointer;
+              box-shadow:0 3px 8px rgba(0,0,0,0.5);">&#x1F327;&#xFE0F; Regen</button>
+      <button id="btn-weather-fog" class="btn-weather" style="width:80px; padding:10px 0; font-size:1rem; font-weight:bold;
+              background:#78909c; color:#fff; border:2px solid transparent; border-radius:10px; cursor:pointer;
+              box-shadow:0 3px 8px rgba(0,0,0,0.5);">&#x1F32B;&#xFE0F; Nebel</button>
     </div>
     <p style="font-size:1.1rem; opacity:0.85; margin:0 0 8px;">Schwierigkeitsgrad w&#228;hlen:</p>
     <button id="btn-diff-einfach" style="width:220px; padding:14px 0; font-size:1.1rem; font-weight:bold;

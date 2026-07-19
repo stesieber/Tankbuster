@@ -9,7 +9,7 @@ const RIVER_Z = -30;
 const RIVER_HALF_W = 10;
 const SOUTH_ROAD_Z = RIVER_Z + RIVER_HALF_W + 9; // -11
 const NORTH_ROAD_Z = RIVER_Z - RIVER_HALF_W - 9; // -49
-const VERTICAL_ROAD_XS = [-85, 10, 90]; // gleiche X-Positionen wie die Brücken
+const VERTICAL_ROAD_XS = [-170, 20, 180]; // gleiche X-Positionen wie die Brücken
 
 function smoothFalloff(dist, blendWidth) {
     if (dist <= 0) return 0;

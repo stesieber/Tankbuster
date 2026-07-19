@@ -24,7 +24,7 @@ window.addEventListener('resize', () => {
 });
 
 // ── Camera ─────────────────────────────────────────────────────────────────
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
 
 // ── Lights ─────────────────────────────────────────────────────────────────
 // Himmel/Boden-Aufhellung sorgt für natürlicheres Umgebungslicht als reines Ambient.
@@ -46,31 +46,104 @@ dirLight.shadow.camera.far    = 320;
 dirLight.shadow.bias = -0.0015;
 scene.add(dirLight);
 
-// ── Tageszeit (Tag/Nacht) ────────────────────────────────────────────────
-// Auf dem Start-Screen wählbar, per Sofort-Vorschau (Szene liegt hinter dem
-// halbtransparenten Overlay). Nacht dimmt Sonnen-/Umgebungslicht und färbt
-// sie kühler (Mondlicht-Anmutung), statt echte Mond-/Sterne-Geometrie zu
-// bauen – das reicht für die gewünschte Stimmungs-Auswahl.
-const TIME_OF_DAY_CONFIGS = {
+// ── Tageszeit (Tag/Nacht) & Wetter (Klar/Regen/Nebel) ───────────────────────
+// Beide auf dem Start-Screen wählbar, per Sofort-Vorschau (Szene liegt
+// hinter dem halbtransparenten Overlay). Statt Zeit- und Wetter-Werte
+// getrennt zu berechnen und zu kombinieren (Multiplikation von Nebel-/Licht-
+// Werten kann sich schnell gegenseitig kaputtrechnen), definiert eine feste
+// 2×3-Tabelle jede der 6 Kombinationen explizit – genauso wie schon die
+// reine Tag/Nacht-Tabelle zuvor. Nacht/Regen/Nebel dimmen bzw. färben
+// Sonnen-/Umgebungslicht und Nebeldistanz um, statt echte Mond-/Wolken-
+// Geometrie zu bauen – das reicht für die gewünschte Stimmungs-Auswahl.
+// Regen bekommt zusätzlich einen echten Partikeleffekt (siehe rainPoints).
+const ENVIRONMENT_CONFIGS = {
   day: {
-    sky: '#87CEEB', fogNear: 150, fogFar: 700,
-    hemiSky: 0xbfd9ff, hemiGround: 0x3a3a20, hemiIntensity: 0.55,
-    ambientIntensity: 0.3,
-    dirColor: 0xfff4e0, dirIntensity: 1.05,
+    clear: {
+      sky: '#87CEEB', fogNear: 300, fogFar: 1400,
+      hemiSky: 0xbfd9ff, hemiGround: 0x3a3a20, hemiIntensity: 0.55,
+      ambientIntensity: 0.3,
+      dirColor: 0xfff4e0, dirIntensity: 1.05,
+      rain: false,
+    },
+    rain: {
+      sky: '#6b7680', fogNear: 120, fogFar: 520,
+      hemiSky: 0x7c8894, hemiGround: 0x2c2c20, hemiIntensity: 0.4,
+      ambientIntensity: 0.22,
+      dirColor: 0xb8c2cc, dirIntensity: 0.55,
+      rain: true,
+    },
+    fog: {
+      sky: '#c7d0d4', fogNear: 40, fogFar: 220,
+      hemiSky: 0xcfd8dc, hemiGround: 0x3a3a2e, hemiIntensity: 0.5,
+      ambientIntensity: 0.35,
+      dirColor: 0xe4e8ea, dirIntensity: 0.5,
+      rain: false,
+    },
   },
   night: {
-    sky: '#0a1230', fogNear: 80, fogFar: 420,
-    hemiSky: 0x1c2a4a, hemiGround: 0x10120a, hemiIntensity: 0.28,
-    ambientIntensity: 0.12,
-    dirColor: 0x8fa8ff, dirIntensity: 0.28,
+    clear: {
+      sky: '#0a1230', fogNear: 160, fogFar: 840,
+      hemiSky: 0x1c2a4a, hemiGround: 0x10120a, hemiIntensity: 0.28,
+      ambientIntensity: 0.12,
+      dirColor: 0x8fa8ff, dirIntensity: 0.28,
+      rain: false,
+    },
+    rain: {
+      sky: '#05070f', fogNear: 70, fogFar: 320,
+      hemiSky: 0x141c2e, hemiGround: 0x0a0a08, hemiIntensity: 0.18,
+      ambientIntensity: 0.08,
+      dirColor: 0x5f6c86, dirIntensity: 0.16,
+      rain: true,
+    },
+    fog: {
+      sky: '#232a33', fogNear: 25, fogFar: 150,
+      hemiSky: 0x2c3440, hemiGround: 0x181812, hemiIntensity: 0.24,
+      ambientIntensity: 0.14,
+      dirColor: 0x4a5666, dirIntensity: 0.18,
+      rain: false,
+    },
   },
 };
 
 let selectedTimeOfDay = 'day';
+let selectedWeather = 'clear';
 
-function applyTimeOfDay(mode) {
-  const cfg = TIME_OF_DAY_CONFIGS[mode] || TIME_OF_DAY_CONFIGS.day;
-  selectedTimeOfDay = mode;
+// ── Regen-Partikel ───────────────────────────────────────────────────────
+// Folgt der Kamera in X/Z (bleibt so immer um den Spieler herum, unabhängig
+// von der Kartengröße), fällt in Y und setzt oben wieder ein statt echter
+// Physik – reicht für den visuellen Regen-Eindruck bei geringen Kosten.
+const RAIN_COUNT = 500;
+const RAIN_BOX_XZ = 200;
+const RAIN_HEIGHT = 100;
+const RAIN_FALL_SPEED = 55;
+const rainGeometry = new THREE.BufferGeometry();
+const rainPositions = new Float32Array(RAIN_COUNT * 3);
+for (let i = 0; i < RAIN_COUNT; i++) {
+  rainPositions[i * 3]     = (Math.random() - 0.5) * RAIN_BOX_XZ;
+  rainPositions[i * 3 + 1] = Math.random() * RAIN_HEIGHT;
+  rainPositions[i * 3 + 2] = (Math.random() - 0.5) * RAIN_BOX_XZ;
+}
+rainGeometry.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+const rainMaterial = new THREE.PointsMaterial({ color: 0xaac4e0, size: 0.25, transparent: true, opacity: 0.55 });
+const rainPoints = new THREE.Points(rainGeometry, rainMaterial);
+rainPoints.visible = false;
+scene.add(rainPoints);
+
+function updateRain(dt) {
+  if (!rainPoints.visible) return;
+  const posAttr = rainGeometry.attributes.position;
+  for (let i = 0; i < RAIN_COUNT; i++) {
+    let y = posAttr.getY(i) - RAIN_FALL_SPEED * dt;
+    if (y < 0) y = RAIN_HEIGHT;
+    posAttr.setY(i, y);
+  }
+  posAttr.needsUpdate = true;
+  rainPoints.position.set(camera.position.x, 0, camera.position.z);
+}
+
+function applyEnvironment() {
+  const byTime = ENVIRONMENT_CONFIGS[selectedTimeOfDay] || ENVIRONMENT_CONFIGS.day;
+  const cfg = byTime[selectedWeather] || byTime.clear;
 
   scene.background = new THREE.Color(cfg.sky);
   scene.fog.color.set(cfg.sky);
@@ -86,10 +159,25 @@ function applyTimeOfDay(mode) {
   dirLight.color.set(cfg.dirColor);
   dirLight.intensity = cfg.dirIntensity;
 
+  rainPoints.visible = cfg.rain;
+
+  window.__testTimeOfDay = selectedTimeOfDay;
+  window.__testWeather = selectedWeather;
+}
+
+function applyTimeOfDay(mode) {
+  selectedTimeOfDay = mode;
   document.getElementById('btn-time-day').classList.toggle('active', mode === 'day');
   document.getElementById('btn-time-night').classList.toggle('active', mode === 'night');
+  applyEnvironment();
+}
 
-  window.__testTimeOfDay = mode;
+function applyWeather(mode) {
+  selectedWeather = mode;
+  document.getElementById('btn-weather-clear').classList.toggle('active', mode === 'clear');
+  document.getElementById('btn-weather-rain').classList.toggle('active', mode === 'rain');
+  document.getElementById('btn-weather-fog').classList.toggle('active', mode === 'fog');
+  applyEnvironment();
 }
 
 ['day', 'night'].forEach(mode => {
@@ -98,11 +186,21 @@ function applyTimeOfDay(mode) {
   btn.addEventListener('touchend', e => { e.preventDefault(); applyTimeOfDay(mode); }, { passive: false });
 });
 
+['clear', 'rain', 'fog'].forEach(mode => {
+  const btn = document.getElementById(`btn-weather-${mode}`);
+  btn.addEventListener('click', () => applyWeather(mode));
+  btn.addEventListener('touchend', e => { e.preventDefault(); applyWeather(mode); }, { passive: false });
+});
+
 applyTimeOfDay('day');
+applyWeather('clear');
 
 // ── Ground ─────────────────────────────────────────────────────────────────
+// Schlachtfeld auf 2000×2000 verdoppelt (Nutzer-Feedback) – Segmentzahl
+// mitverdoppelt (200×200 statt 100×100), damit die Terrain-Auflösung pro
+// Einheit gleich bleibt (sonst würden Straßen-/Fluss-Übergänge grober).
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(1000, 1000, 100, 100),
+  new THREE.PlaneGeometry(2000, 2000, 200, 200),
   new THREE.MeshLambertMaterial({ color: '#4a5e23' })
 );
 ground.rotation.x = -Math.PI / 2;
@@ -117,7 +215,7 @@ const NORTH_ROAD_Z = RIVER_Z - RIVER_HALF_W - 9;   // -49
 // Brücken UND Nord-Süd-Verbindungsstraßen teilen sich dieselben X-Positionen,
 // damit die Straßen tatsächlich auf eine Brücke zulaufen statt querfeldein
 // an einer anderen Stelle in den Fluss zu laufen.
-const BRIDGE_XS = [-85, 10, 90];
+const BRIDGE_XS = [-170, 20, 180];
 const VERTICAL_ROAD_XS = BRIDGE_XS;
 
 // ── Hügel-Landschaft (Höhenkarte) ───────────────────────────────────────────
@@ -187,7 +285,7 @@ applyTerrainToGround(ground);
 
 // Flusswasser
 const riverMesh = new THREE.Mesh(
-  new THREE.PlaneGeometry(1000, RIVER_HALF_W * 2),
+  new THREE.PlaneGeometry(2000, RIVER_HALF_W * 2),
   new THREE.MeshLambertMaterial({ color: '#1a5c8a' })
 );
 riverMesh.rotation.x = -Math.PI / 2;
@@ -197,7 +295,7 @@ scene.add(riverMesh);
 // Sandbänke beidseitig
 const sandMat = new THREE.MeshLambertMaterial({ color: '#c8b87a' });
 for (const side of [-1, 1]) {
-  const bank = new THREE.Mesh(new THREE.PlaneGeometry(1000, 6), sandMat);
+  const bank = new THREE.Mesh(new THREE.PlaneGeometry(2000, 6), sandMat);
   bank.rotation.x = -Math.PI / 2;
   bank.position.set(0, 0.03, RIVER_Z + side * (RIVER_HALF_W + 3));
   scene.add(bank);
@@ -268,12 +366,12 @@ function buildRoad(x1, z1, x2, z2, width) {
 }
 
 // Hauptstraßen beidseitig des Flusses (Ost–West)
-buildRoad(-500, SOUTH_ROAD_Z,  500, SOUTH_ROAD_Z, 6);
-buildRoad(-500, NORTH_ROAD_Z,  500, NORTH_ROAD_Z, 6);
+buildRoad(-1000, SOUTH_ROAD_Z,  1000, SOUTH_ROAD_Z, 6);
+buildRoad(-1000, NORTH_ROAD_Z,  1000, NORTH_ROAD_Z, 6);
 
 // Nord–Süd-Verbindungsstraßen (durch die ganze Karte)
 for (const rx of VERTICAL_ROAD_XS) {
-  buildRoad(rx, -500, rx,  500, 5);
+  buildRoad(rx, -1000, rx,  1000, 5);
 }
 
 // Brücken-Zufahrten (verbinden Hauptstraße mit Brückenende)
@@ -393,12 +491,12 @@ function buildHouse(w, h, d) {
 }
 
 const houses = [];
-for (let i = 0; i < 10; i++) {
+for (let i = 0; i < 20; i++) {
   const w = randomBetween(8, 15);
   const h = randomBetween(8, 20);
   const d = randomBetween(8, 15);
   const group = buildHouse(w, h, d);
-  const pos = randomPositionFarFrom(30, 380);
+  const pos = randomPositionFarFrom(30, 760);
   group.position.set(pos.x, getTerrainHeight(pos.x, pos.z) + h / 2, pos.z);
   scene.add(group);
   houses.push({ mesh: group, hp: 100, destroyed: false, bw: w, bh: h, bd: d, beingRammed: false, holeMesh: null, ramDmgAccum: 0 });
@@ -408,7 +506,7 @@ buildHouseRoads();
 // ── Trees ──────────────────────────────────────────────────────────────────
 const trees = [];
 
-for (let i = 0; i < 30; i++) {
+for (let i = 0; i < 60; i++) {
   const group = new THREE.Group();
 
   const trunk = new THREE.Mesh(
@@ -427,7 +525,7 @@ for (let i = 0; i < 30; i++) {
   crown.castShadow = true;
   group.add(crown);
 
-  const pos = randomPositionFarFrom(15, 400);
+  const pos = randomPositionFarFrom(15, 800);
   group.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z);
   scene.add(group);
   trees.push({ group, falling: false, fallen: false, fallAngle: 0, fallSpeed: 0, axis: new THREE.Vector3(1, 0, 0) });
@@ -466,9 +564,9 @@ function spawnForest(cx, cz, radius, count) {
 }
 
 // SW (nahe Spielerstart), NW, NO, SO – 3 dichte Ecken
-spawnForest(-380, -380, 90, 55);   // NW
-spawnForest( 380, -380, 90, 55);   // NO
-spawnForest( 380,  380, 90, 55);   // SO
+spawnForest(-760, -760, 180, 110);   // NW
+spawnForest( 760, -760, 180, 110);   // NO
+spawnForest( 760,  760, 180, 110);   // SO
 
 function updateFallingTrees(dt) {
   for (const t of trees) {
@@ -507,10 +605,10 @@ function buildBush(r) {
   return group;
 }
 
-for (let i = 0; i < 50; i++) {
+for (let i = 0; i < 100; i++) {
   const r = randomBetween(0.8, 1.5);
   const group = buildBush(r);
-  const pos = randomPositionFarFrom(10, 420);
+  const pos = randomPositionFarFrom(10, 840);
   group.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z);
   scene.add(group);
   bushes.push({ group, radius: r, flattening: false, flattened: false, flatProgress: 0 });
@@ -693,6 +791,69 @@ const TANK_TYPES = {
     wheelStyle: 'modern',
     muzzleStyle: 'sleeve',   // ungenutzt (Doppelrohr statt Kanone)
     turretStyle: 'wedge',    // ungenutzt (Doppelrohr statt Mantlet/Wedge-Front)
+  },
+  at8: {
+    key: 'at8',
+    weaponLoadout: 'standard',
+    label: 'AT 8',
+    icon: '🐢',
+    bodyColor: '#5c5f45',
+    cannonColor: '#42453a',
+    trackColor: '#242420',
+    camoColors: ['#4c4e38', '#6e7156', '#2c2e20', '#84875f'],
+    bodySize: { w: 4.1, h: 1.6,  d: 6.4 },
+    turretSize: { w: 2.6, h: 1.15, d: 2.6 },
+    speedFactor: 0.55,
+    maxHP: 170,
+    speedLabel: 'Sehr langsam',
+    armorLabel: 'Stark',
+    speedPct: 22,
+    armorPct: 90,
+    wheelStyle: 'overlapping', // britisches Sturmpanzer-Projekt: massives Schachtellaufwerk
+    muzzleStyle: 'doubleBaffle',
+    turretStyle: 'roundedMantlet', // dicker gegossener Mantel, typisch für Durchbruchspanzer
+  },
+  vickers: {
+    key: 'vickers',
+    weaponLoadout: 'standard',
+    label: 'Panzerwagen Vickers',
+    icon: '🦁',
+    bodyColor: '#6b6a4e',
+    cannonColor: '#4a4936',
+    trackColor: '#2a2a22',
+    camoColors: ['#5a5940', '#82815e', '#3a3926', '#96956c'],
+    bodySize: { w: 3.3, h: 1.05, d: 5.2 },
+    turretSize: { w: 1.9, h: 0.75, d: 1.9 },
+    speedFactor: 1.5,
+    maxHP: 60,
+    speedLabel: 'Sehr schnell',
+    armorLabel: 'Schwach',
+    speedPct: 95,
+    armorPct: 20,
+    wheelStyle: 'modern',       // einfaches Blattfederlaufwerk statt Schachtellaufwerk
+    muzzleStyle: 'sleeve',      // dünnes Zwischenkriegs-Kanonenrohr, keine Mündungsbremse
+    turretStyle: 'roundedMantlet', // kleiner runder Turm, typisch für Zwischenkriegs-Leichtpanzer
+  },
+  maus: {
+    key: 'maus',
+    weaponLoadout: 'standard',
+    label: 'Panzer Maus',
+    icon: '🐭',
+    bodyColor: '#3a3d33',
+    cannonColor: '#2a2c22',
+    trackColor: '#1a1a1a',
+    camoColors: ['#31331f', '#4c4e34', '#1e1f14', '#5c5e42'],
+    bodySize: { w: 4.3, h: 1.65, d: 6.6 },
+    turretSize: { w: 2.7, h: 1.25, d: 2.8 },
+    speedFactor: 0.45,
+    maxHP: 210,
+    speedLabel: 'Extrem langsam',
+    armorLabel: 'Sehr stark',
+    speedPct: 12,
+    armorPct: 100,
+    wheelStyle: 'overlapping',  // acht überlappende Laufrollenpaare, wie beim Original
+    muzzleStyle: 'doubleBaffle', // 12,8cm KwK 44
+    turretStyle: 'roundedMantlet', // massiver gegossener Turm
   },
 };
 
@@ -2314,8 +2475,8 @@ function buildEnemyTank(bodyColor) {
 }
 
 function randomEnemyPosition(existingPositions) {
-    const RANGE = 400;
-    const MIN_FROM_PLAYER = 100;
+    const RANGE = 800;
+    const MIN_FROM_PLAYER = 200;
     const MIN_FROM_EACH = 30;
     for (let attempt = 0; attempt < 5000; attempt++) {
         const x = -RANGE + Math.random() * RANGE * 2;
@@ -2330,7 +2491,7 @@ function randomEnemyPosition(existingPositions) {
         }
         if (!tooClose) return { x, z };
     }
-    return { x: (Math.random() > 0.5 ? 1 : -1) * (100 + Math.random() * 120), z: 0 };
+    return { x: (Math.random() > 0.5 ? 1 : -1) * (200 + Math.random() * 240), z: 0 };
 }
 
 function createEnemyHPBar(enemy) {
@@ -2684,11 +2845,11 @@ const minimapCtx = minimapCanvas.getContext('2d');
 function drawMinimap() {
     minimapCtx.clearRect(0, 0, 120, 120);
 
-    // Koordinate world → map pixel (500 units = 120 px)
+    // Koordinate world → map pixel (1000 units = 120 px, Schlachtfeld verdoppelt)
     function worldToMap(x, z) {
         return {
-            px: (x / 500) * 120 + 60,
-            py: (z / 500) * 120 + 60,
+            px: (x / 1000) * 120 + 60,
+            py: (z / 1000) * 120 + 60,
         };
     }
 
@@ -2831,7 +2992,7 @@ function buildTankPreview(canvasId, cfg) {
   return { previewScene, previewCamera, previewRenderer, tank: built.tank, resize };
 }
 
-const TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma'];
+const TANK_SELECT_ORDER = ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma', 'at8', 'vickers', 'maus'];
 
 const tankPreviews = TANK_SELECT_ORDER.map(key =>
   buildTankPreview(`preview-${key}`, TANK_TYPES[key])
@@ -3029,6 +3190,7 @@ function animate() {
   updateFlatteningBushes(dt);
   updateFallingDebris(dt);
   updateFireballs(dt);
+  updateRain(dt);
 
 
   // 6b. Gegner-KI

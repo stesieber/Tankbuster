@@ -154,6 +154,38 @@ test.describe('Phase 3 – Gegner-System', () => {
     expect(await page.evaluate(() => window.__testTimeOfDay)).toBe('night');
   });
 
+  test('Wetter-Auswahl: Klar ist Standard, Regen/Nebel lassen sich auswählen', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+
+    await expect(page.locator('#btn-weather-clear')).toHaveClass(/active/);
+    expect(await page.evaluate(() => window.__testWeather)).toBe('clear');
+
+    await page.click('#btn-weather-rain');
+    await page.waitForTimeout(100);
+    await expect(page.locator('#btn-weather-rain')).toHaveClass(/active/);
+    await expect(page.locator('#btn-weather-clear')).not.toHaveClass(/active/);
+    expect(await page.evaluate(() => window.__testWeather)).toBe('rain');
+
+    await page.click('#btn-weather-fog');
+    await page.waitForTimeout(100);
+    await expect(page.locator('#btn-weather-fog')).toHaveClass(/active/);
+    await expect(page.locator('#btn-weather-rain')).not.toHaveClass(/active/);
+    expect(await page.evaluate(() => window.__testWeather)).toBe('fog');
+  });
+
+  test('Gewähltes Wetter bleibt beim Spielstart erhalten', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-weather-rain');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(500);
+
+    expect(await page.evaluate(() => window.__testWeather)).toBe('rain');
+  });
+
   test('Gegner-Zähler zeigt 5 / 5 nach Spielstart', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
@@ -435,13 +467,13 @@ test.describe('Phase 5 – Waffen-Anzeige', () => {
 });
 
 // ── Phase 6 Tests ────────────────────────────────────────────────────────────
-test.describe('Phase 6 – Panzerauswahl (7 Fahrzeuge)', () => {
+test.describe('Phase 6 – Panzerauswahl (10 Fahrzeuge)', () => {
 
-  test('Panzerauswahl-Bildschirm zeigt alle 7 Fahrzeuge', async ({ page }) => {
+  test('Panzerauswahl-Bildschirm zeigt alle 10 Fahrzeuge', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
 
-    for (const key of ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma']) {
+    for (const key of ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma', 'at8', 'vickers', 'maus']) {
       await expect(page.locator(`#tank-card-${key}`)).toBeVisible();
       await expect(page.locator(`#btn-select-${key}`)).toBeVisible();
     }
@@ -451,7 +483,7 @@ test.describe('Phase 6 – Panzerauswahl (7 Fahrzeuge)', () => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(800);
 
-    for (const id of ['preview-abrams', 'preview-t90', 'preview-leclerc', 'preview-mlrs', 'preview-puma']) {
+    for (const id of ['preview-abrams', 'preview-t90', 'preview-leclerc', 'preview-mlrs', 'preview-puma', 'preview-at8', 'preview-vickers', 'preview-maus']) {
       const isNotBlack = await page.evaluate((canvasId) => {
         const canvas = document.getElementById(canvasId);
         if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
@@ -528,8 +560,9 @@ test.describe('Phase 6 – Panzerauswahl (7 Fahrzeuge)', () => {
   // überdeckt und dadurch nicht antippbar, obwohl im DOM technisch
   // "sichtbar". Prüft, dass der Auswählen-Button der letzten Karte nach dem
   // Scrollen komplett INNERHALB des sichtbaren Viewports liegt, nicht nur
-  // dass er laut DOM/CSS existiert.
-  test('Letzte Panzer-Karte (Puma) ist nach dem Scrollen vollständig im Viewport erreichbar', async ({ page }) => {
+  // dass er laut DOM/CSS existiert. Seit den 3 zusätzlichen Fahrzeugen
+  // (AT 8, Vickers, Maus) ist Maus statt Puma die letzte Karte.
+  test('Letzte Panzer-Karte (Maus) ist nach dem Scrollen vollständig im Viewport erreichbar', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 700 }); // schmaler Mobile-Viewport
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);
@@ -540,15 +573,64 @@ test.describe('Phase 6 – Panzerauswahl (7 Fahrzeuge)', () => {
     });
     await page.waitForTimeout(200);
 
-    const box = await page.locator('#btn-select-puma').boundingBox();
-    expect(box, 'btn-select-puma hat keine Bounding Box (unsichtbar?)').toBeTruthy();
+    const box = await page.locator('#btn-select-maus').boundingBox();
+    expect(box, 'btn-select-maus hat keine Bounding Box (unsichtbar?)').toBeTruthy();
     expect(box.y, 'Button-Oberkante sollte nicht über dem Viewport liegen').toBeGreaterThanOrEqual(0);
     expect(box.y + box.height, 'Button-Unterkante sollte innerhalb der Viewport-Höhe liegen').toBeLessThanOrEqual(700);
 
-    await page.click('#btn-select-puma');
+    await page.click('#btn-select-maus');
     await page.waitForTimeout(200);
     const selected = await page.evaluate(() => window.__testSelectedTank);
-    expect(selected).toBe('puma');
+    expect(selected).toBe('maus');
+  });
+
+  test('AT 8 ist sehr langsam und stark gepanzert', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'at8');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const hp       = await page.evaluate(() => window.__testPlayerHP);
+    const speed    = await page.evaluate(() => window.__testTankMaxSpeed);
+
+    expect(selected).toBe('at8');
+    expect(hp).toBeGreaterThan(140); // stärker gepanzert als Königstiger
+    expect(speed).toBeLessThan(0.18); // langsamer als T-90
+    await expect(page.locator('#tank-name')).toContainText('AT 8');
+  });
+
+  test('Panzerwagen Vickers ist schnell, aber schwach gepanzert', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'vickers');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const hp       = await page.evaluate(() => window.__testPlayerHP);
+    const speed    = await page.evaluate(() => window.__testTankMaxSpeed);
+
+    expect(selected).toBe('vickers');
+    expect(hp).toBeLessThan(95); // schwächer gepanzert als Königstiger
+    expect(speed).toBeGreaterThan(0.405); // schneller als Leopard 2 A8
+    await expect(page.locator('#tank-name')).toContainText('Vickers');
+  });
+
+  test('Panzer Maus ist der langsamste und am stärksten gepanzerte Panzer', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'maus');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const hp       = await page.evaluate(() => window.__testPlayerHP);
+    const speed    = await page.evaluate(() => window.__testTankMaxSpeed);
+
+    expect(selected).toBe('maus');
+    expect(hp).toBeGreaterThan(170); // mehr HP als jeder andere Panzer (AT 8: 170)
+    expect(speed).toBeLessThan(0.15); // langsamer als AT 8
+
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(500);
+    const speedAfterStart = await page.evaluate(() => window.__testTankMaxSpeed);
+    expect(speedAfterStart).toBe(speed);
   });
 
 });
@@ -874,7 +956,7 @@ test.describe('Phase 6 – Hügel-Landschaft', () => {
     await page.waitForTimeout(500);
 
     const bridgeXs = await page.evaluate(() => window.__testBridgeXs);
-    expect(bridgeXs.slice().sort((a, b) => a - b)).toEqual([-85, 10, 90]);
+    expect(bridgeXs.slice().sort((a, b) => a - b)).toEqual([-170, 20, 180]);
   });
 
 });
