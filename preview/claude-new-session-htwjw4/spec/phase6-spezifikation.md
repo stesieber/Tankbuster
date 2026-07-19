@@ -217,14 +217,15 @@ stattdessen `addRocketPod()`: ein Rahmen mit einem 3×2-Bündel kurzer
 Abschussrohre, am selben `gunPivot` befestigt wie die Kanone bei anderen
 Panzern – neigt sich also genauso mit dem Höhenwinkel (-5°..+20°).
 
-**Waffen-Freischaltung:** Neue globale `currentWeaponLoadout`
-(`'standard'` | `'mlrs'`), gesetzt in `applyTankType()`. `tryFireCannon()`
-und der MG-Auto-Feuer-Block in `animate()` brechen sofort ab, wenn
-`currentWeaponLoadout !== 'standard'`. Kanone-Button, MG-Button sowie deren
-HUD-Slots (`#weapon-slot-cannon`/`#weapon-slot-mg`) werden beim Auswählen
-des MLRS per `style.display = 'none'` ausgeblendet (und beim Wechsel zurück
-zu einem Standard-Panzer wieder eingeblendet – nur relevant für zukünftige
-Mehrfachauswahl, aktuell wählt man einmal pro Runde).
+**Waffen-Freischaltung:** Neue globale `currentWeaponLoadout`, gesetzt in
+`applyTankType()` (Werte siehe Puma-Abschnitt unten: mittlerweile
+`'standard'` | `'mlrs'` | `'autocannon'`, ursprünglich beim MLRS nur die
+ersten beiden). `tryFireCannon()` und `tryFireRocket()` brechen sofort ab,
+wenn `currentWeaponLoadout !== 'standard'` (Kanone/Rakete existieren nur
+bei Standard-Panzern). Der MG-Auto-Feuer-Block in `animate()` bricht dagegen
+NICHT einfach ab, sondern verzweigt inzwischen dreiseitig zwischen `fireMG()`
+und `fireAutocannon()` – Details dazu im Puma-Abschnitt unten, der den
+aktuellen, generischen `hasCannon`/`hasRocket`/`hasMgSlot`-Ansatz beschreibt.
 
 **Salven-/Ladungslogik** (`tryFireRocketSalvo()`, Nachlade-Tick in
 `animate()`): `rocketCharges` (0–3) und `rocketSalvoFiring` steuern, ob
@@ -355,8 +356,9 @@ Gilt für Spieler- und Gegner-Panzer (nicht für Wracks/Trümmer).
 - Gegner-Panzer neigen ihre Kanone nicht (kein `gunPivot`) – nur relevant für
   die visuelle Kanonenausrichtung, die Ziel-Trefferlogik der Gegner-KI war
   davon nicht betroffen
-- Alle 5 Panzer teilen weiterhin identische Waffen-Werte (siehe "Was Phase 6
-  noch NICHT enthält")
+- Die 5 Standard-Panzer (Königstiger/Leopard/Abrams/T-90/Leclerc) teilen
+  weiterhin identische Kanone/MG/Rakete-Werte (siehe "Was Phase 6 noch NICHT
+  enthält"); MLRS und Puma haben je eine eigene Spezialwaffe mit eigenen Werten
 
 ---
 
