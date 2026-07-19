@@ -244,7 +244,11 @@ test.describe('Touch-Steuerung', () => {
   //      sodass nur Touches ÜBER dem Joystick registriert wurden.
   test('Joystick reagiert bei Touch am unteren Joystick-Rand', async ({ page }) => {
     await page.goto('http://localhost:7777/');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
+    await page.tap('#btn-select-koenigstiger');
+    await page.waitForTimeout(200);
+    await page.tap('#btn-diff-normal');
+    await page.waitForTimeout(500);
 
     // Touch am untersten Punkt des linken Joystick-Bereichs (bottom: 40px)
     const cx = 85;
@@ -397,6 +401,496 @@ test.describe('Phase 5 – Waffen-Anzeige', () => {
     await page.waitForTimeout(150);
     await expect(page.locator('#weapon-slot-mg')).toHaveClass(/active/);
     await page.mouse.up();
+  });
+
+});
+
+// ── Phase 6 Tests ────────────────────────────────────────────────────────────
+test.describe('Phase 6 – Panzerauswahl (7 Fahrzeuge)', () => {
+
+  test('Panzerauswahl-Bildschirm zeigt alle 7 Fahrzeuge', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    for (const key of ['koenigstiger', 'leopard', 'abrams', 't90', 'leclerc', 'mlrs', 'puma']) {
+      await expect(page.locator(`#tank-card-${key}`)).toBeVisible();
+      await expect(page.locator(`#btn-select-${key}`)).toBeVisible();
+    }
+  });
+
+  test('Neue Panzer-Vorschauen rendern (Canvas nicht leer)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(800);
+
+    for (const id of ['preview-abrams', 'preview-t90', 'preview-leclerc', 'preview-mlrs', 'preview-puma']) {
+      const isNotBlack = await page.evaluate((canvasId) => {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
+        const tmp = document.createElement('canvas');
+        tmp.width = canvas.width;
+        tmp.height = canvas.height;
+        const ctx = tmp.getContext('2d');
+        ctx.drawImage(canvas, 0, 0);
+        const px = ctx.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+        return (px[0] + px[1] + px[2]) > 10;
+      }, id);
+      expect(isNotBlack, `${id} rendert nichts`).toBe(true);
+    }
+  });
+
+  test('T-90 ist langsam und sehr stark gepanzert (mehr HP als Königstiger)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 't90');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const hp       = await page.evaluate(() => window.__testPlayerHP);
+    const speed    = await page.evaluate(() => window.__testTankMaxSpeed);
+
+    expect(selected).toBe('t90');
+    expect(hp).toBeGreaterThan(140); // stärker gepanzert als Königstiger
+    expect(speed).toBeLessThan(0.24); // langsamer als Königstiger
+    await expect(page.locator('#tank-name')).toContainText('T-90');
+  });
+
+  test('Leclerc ist am schnellsten von allen Panzern', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'leclerc');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const speed    = await page.evaluate(() => window.__testTankMaxSpeed);
+
+    expect(selected).toBe('leclerc');
+    expect(speed).toBeGreaterThan(0.405); // schneller als Leopard 2 A8 (0.405)
+  });
+
+  // REGRESSION TEST: 5 Panzer-Karten passen nicht mehr auf einen Bildschirm –
+  // die globalen Joystick-Touch-Handler riefen aber immer preventDefault()
+  // auf und verhinderten so das Scrollen der Panzerauswahl auf Mobile.
+  test('Panzerauswahl-Bildschirm blockiert Touch-Scrollen nicht mehr', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const { startPrevented, movePrevented, overflowsViewport, touchAction } = await page.evaluate(() => {
+      const el = document.getElementById('tank-select-screen');
+      const touch = new Touch({ identifier: 99, target: el, clientX: 100, clientY: 400 });
+      const evStart = new TouchEvent('touchstart', { touches: [touch], changedTouches: [touch], bubbles: true, cancelable: true });
+      document.dispatchEvent(evStart);
+      const evMove = new TouchEvent('touchmove', { touches: [touch], changedTouches: [touch], bubbles: true, cancelable: true });
+      document.dispatchEvent(evMove);
+      return {
+        startPrevented: evStart.defaultPrevented,
+        movePrevented: evMove.defaultPrevented,
+        overflowsViewport: el.scrollHeight > el.clientHeight,
+        touchAction: getComputedStyle(el).touchAction,
+      };
+    });
+
+    expect(startPrevented, 'touchstart sollte auf der Panzerauswahl nicht preventDefault() aufrufen').toBe(false);
+    expect(movePrevented, 'touchmove sollte auf der Panzerauswahl nicht preventDefault() aufrufen').toBe(false);
+    expect(overflowsViewport, 'Die Panzer-Karten sollten den Bildschirm überragen (Scroll nötig)').toBe(true);
+    expect(touchAction).not.toBe('none');
+  });
+
+  // REGRESSION TEST (Nutzer-Feedback: "man kann den Puma nicht auswählen"):
+  // Die letzte Karte (allein in der letzten Zeile) lag direkt am unteren
+  // Viewport-Rand – auf echten Mobilgeräten oft von Browser-/OS-Leisten
+  // überdeckt und dadurch nicht antippbar, obwohl im DOM technisch
+  // "sichtbar". Prüft, dass der Auswählen-Button der letzten Karte nach dem
+  // Scrollen komplett INNERHALB des sichtbaren Viewports liegt, nicht nur
+  // dass er laut DOM/CSS existiert.
+  test('Letzte Panzer-Karte (Puma) ist nach dem Scrollen vollständig im Viewport erreichbar', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 700 }); // schmaler Mobile-Viewport
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    await page.evaluate(() => {
+      const el = document.getElementById('tank-select-screen');
+      el.scrollTop = el.scrollHeight;
+    });
+    await page.waitForTimeout(200);
+
+    const box = await page.locator('#btn-select-puma').boundingBox();
+    expect(box, 'btn-select-puma hat keine Bounding Box (unsichtbar?)').toBeTruthy();
+    expect(box.y, 'Button-Oberkante sollte nicht über dem Viewport liegen').toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height, 'Button-Unterkante sollte innerhalb der Viewport-Höhe liegen').toBeLessThanOrEqual(700);
+
+    await page.click('#btn-select-puma');
+    await page.waitForTimeout(200);
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    expect(selected).toBe('puma');
+  });
+
+});
+
+test.describe('M270 MLRS – Raketenwerfer-Fahrzeug', () => {
+
+  test('Auswahl MLRS: kein Kanone/MG-Button, dafür Raketen-Slot mit 3 Ladungen', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const loadout  = await page.evaluate(() => window.__testWeaponLoadout);
+    const charges  = await page.evaluate(() => window.__testRocketCharges);
+
+    expect(selected).toBe('mlrs');
+    expect(loadout).toBe('mlrs');
+    expect(charges).toBe(3);
+    await expect(page.locator('#tank-name')).toContainText('MLRS');
+    await expect(page.locator('#shoot-btn')).toBeHidden();
+    await expect(page.locator('#btn-mg')).toBeHidden();
+    await expect(page.locator('#weapon-slot-cannon')).toBeHidden();
+    await expect(page.locator('#weapon-slot-mg')).toBeHidden();
+    await expect(page.locator('#btn-rocket')).toBeVisible();
+  });
+
+  test('Andere Panzer behalten Kanone und MG (MLRS-Auswahl blendet sie nicht dauerhaft aus)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'koenigstiger');
+
+    await expect(page.locator('#shoot-btn')).toBeVisible();
+    await expect(page.locator('#btn-mg')).toBeVisible();
+    const loadout = await page.evaluate(() => window.__testWeaponLoadout);
+    expect(loadout).toBe('standard');
+  });
+
+  test('Leertaste (Kanone) hat beim MLRS keine Wirkung', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    const shotsBefore = await page.evaluate(() => document.getElementById('shot-count').textContent);
+    await page.keyboard.press(' ');
+    await page.waitForTimeout(200);
+    const shotsAfter = await page.evaluate(() => document.getElementById('shot-count').textContent);
+    expect(shotsAfter).toBe(shotsBefore);
+  });
+
+  test('Raketen-Salve verbraucht eine Ladung und feuert 5 Raketen ab', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.click('#btn-rocket');
+    await page.waitForTimeout(100);
+
+    const chargesRightAfter = await page.evaluate(() => window.__testRocketCharges);
+    const firingRightAfter  = await page.evaluate(() => window.__testRocketSalvoFiring);
+    expect(chargesRightAfter).toBe(2);
+    expect(firingRightAfter).toBe(true);
+
+    // Salve besteht aus 5 gestaffelten Schüssen (150ms Abstand) – nach genug
+    // Zeit muss "firing" wieder false sein.
+    await page.waitForTimeout(1200);
+    const firingAfterSalvo = await page.evaluate(() => window.__testRocketSalvoFiring);
+    expect(firingAfterSalvo).toBe(false);
+  });
+
+  test('Kein zweiter Abschuss möglich während eine Salve noch läuft', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    // Tastatur statt Klick: umgeht den disabled-Button und testet direkt die
+    // tryFireRocket()-Sperre (ein zweiter Klick auf den während der Salve
+    // disabled-Button würde von Playwright bis zur Wiederaktivierung warten).
+    await page.keyboard.press('r');
+    await page.waitForTimeout(50);
+    await page.keyboard.press('r'); // sollte während laufender Salve ignoriert werden
+    await page.waitForTimeout(50);
+
+    const charges = await page.evaluate(() => window.__testRocketCharges);
+    expect(charges, 'zweiter Abschuss während laufender Salve darf keine weitere Ladung verbrauchen').toBe(2);
+  });
+
+  // REGRESSION TEST (Nutzer-Feedback): jede Salve soll aus einem anderen Rohr
+  // kommen – erste links, zweite mitte, dritte rechts, dann wieder von vorn.
+  test('Drei Rohr-Positionen (links/mitte/rechts) sind vorhanden und unterschiedlich', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+
+    const xs = await page.evaluate(() => window.__testRocketMuzzleLocalXs);
+    expect(xs, '__testRocketMuzzleLocalXs nicht gesetzt').toBeTruthy();
+    expect(xs.length).toBe(3);
+    expect(xs[0]).toBeLessThan(xs[1]); // links < Mitte
+    expect(xs[1]).toBeLessThan(xs[2]); // Mitte < rechts
+    expect(xs[1]).toBeCloseTo(0, 5);   // mittleres Rohr liegt auf der Mittelachse
+  });
+
+  // Nur die ersten 3 Salven (= die volle Start-Ladung) werden hier live
+  // durchgespielt, damit der Test nicht auf das 10s-Nachladen warten muss –
+  // das "wraps forever nach dem Nachladen"-Verhalten deckt bereits der
+  // reine Unit-Test in tests/unit/mlrs.test.js ab.
+  test('Die ersten 3 Salven feuern reihum aus links → Mitte → rechts', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'mlrs');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    const indicesAfterEachSalvo = [];
+    for (let i = 0; i < 3; i++) {
+      await page.keyboard.press('r');
+      await page.waitForTimeout(50);
+      indicesAfterEachSalvo.push(await page.evaluate(() => window.__testRocketPodTubeIndex));
+      await page.waitForTimeout(1200); // Salve fertig abwarten, bevor die nächste ausgelöst wird
+    }
+
+    // Der Index zeigt jeweils auf das NÄCHSTE Rohr (schon weitergezählt):
+    // nach Salve 1 (links=0 verbraucht) -> 1, nach Salve 2 (Mitte) -> 2,
+    // nach Salve 3 (rechts) -> 0 (Wrap, bereit für die übernächste Salve).
+    expect(indicesAfterEachSalvo).toEqual([1, 2, 0]);
+  });
+
+});
+
+test.describe('Puma – Maschinenkanonen-Fahrzeug', () => {
+
+  test('Auswahl Puma: kein Kanone/Rakete-Button, dafür MK-Slot mit 2 Schaden/3 Schuss pro Sekunde', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'puma');
+
+    const selected = await page.evaluate(() => window.__testSelectedTank);
+    const loadout  = await page.evaluate(() => window.__testWeaponLoadout);
+
+    expect(selected).toBe('puma');
+    expect(loadout).toBe('autocannon');
+    await expect(page.locator('#tank-name')).toContainText('Puma');
+    await expect(page.locator('#shoot-btn')).toBeHidden();
+    await expect(page.locator('#btn-rocket')).toBeHidden();
+    await expect(page.locator('#weapon-slot-cannon')).toBeHidden();
+    await expect(page.locator('#weapon-slot-rocket')).toBeHidden();
+    await expect(page.locator('#btn-mg')).toBeVisible();
+    await expect(page.locator('#btn-mg')).toContainText('MK');
+    await expect(page.locator('#weapon-slot-mg')).toBeVisible();
+    await expect(page.locator('#weapon-slot-mg')).toContainText('MK');
+  });
+
+  test('Andere Panzer zeigen weiterhin "MG" statt "MK" (Puma-Auswahl ändert das Label nicht dauerhaft)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'koenigstiger');
+
+    await expect(page.locator('#btn-mg')).toContainText('MG');
+    await expect(page.locator('#shoot-btn')).toBeVisible();
+    await expect(page.locator('#btn-rocket')).toBeVisible();
+  });
+
+  test('Leertaste (Kanone) und "r" (Rakete) haben beim Puma keine Wirkung', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'puma');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    const shotsBefore = await page.evaluate(() => document.getElementById('shot-count').textContent);
+    await page.keyboard.press(' ');
+    await page.keyboard.press('r');
+    await page.waitForTimeout(200);
+    const shotsAfter = await page.evaluate(() => document.getElementById('shot-count').textContent);
+    expect(shotsAfter).toBe(shotsBefore);
+  });
+
+  test('Maschinenkanone feuert im Dauerfeuer, solange die Taste gehalten wird', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page, 'puma');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.keyboard.down('f');
+    await page.waitForTimeout(150);
+    const activeWhileHeld = await page.evaluate(() =>
+      document.getElementById('weapon-slot-mg').classList.contains('active')
+    );
+    await page.keyboard.up('f');
+    await page.waitForTimeout(100);
+    const readyAfterRelease = await page.evaluate(() =>
+      document.getElementById('weapon-slot-mg').classList.contains('ready')
+    );
+
+    expect(activeWhileHeld, 'MK-Slot sollte während des Haltens "active" sein').toBe(true);
+    expect(readyAfterRelease, 'MK-Slot sollte nach Loslassen wieder "ready" sein').toBe(true);
+  });
+
+});
+
+test.describe('Phase 6 – Vertikales Zielen', () => {
+
+  test('Höhenwinkel steht initial auf 0', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const pitch = await page.evaluate(() => window.__testGunPitch);
+    expect(pitch).toBeCloseTo(0, 5);
+  });
+
+  test('Taste T neigt die Kanone nach oben (positiver Höhenwinkel)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.keyboard.down('t');
+    await page.waitForTimeout(600);
+    await page.keyboard.up('t');
+    await page.waitForTimeout(100);
+
+    const pitch = await page.evaluate(() => window.__testGunPitch);
+    expect(pitch).toBeGreaterThan(0);
+    expect(pitch).toBeLessThanOrEqual(20 * Math.PI / 180 + 0.01);
+  });
+
+  test('Taste G neigt die Kanone nach unten (negativer Höhenwinkel), Grenze bei -5°', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.keyboard.down('g');
+    await page.waitForTimeout(600);
+    await page.keyboard.up('g');
+    await page.waitForTimeout(100);
+
+    const pitch = await page.evaluate(() => window.__testGunPitch);
+    expect(pitch).toBeLessThan(0);
+    expect(pitch).toBeGreaterThanOrEqual(-5 * Math.PI / 180 - 0.01);
+  });
+
+});
+
+test.describe('Phase 6 – Hügel-Landschaft', () => {
+
+  test('Terrain-Höhenfunktion ist verfügbar und liefert endliche Werte', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const heights = await page.evaluate(() => ([
+      window.__testTerrainHeight(0, -30),     // Flusskanal → sollte 0 sein
+      window.__testTerrainHeight(100, 250),   // abseits von Fluss/Straßen → Hügel
+    ]));
+
+    expect(heights[0]).toBeCloseTo(0, 5);
+    expect(Number.isFinite(heights[1])).toBe(true);
+  });
+
+  test('Panzer-Y-Position folgt der Geländehöhe (kein Schweben/Versinken)', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    const { tankY, terrainY } = await page.evaluate(() => {
+      const pos = window.__testTankWorldPos;
+      return { tankY: pos.y, terrainY: window.__testTerrainHeight(pos.x, pos.z) };
+    });
+
+    expect(Math.abs(tankY - terrainY)).toBeLessThan(0.01);
+  });
+
+  // REGRESSION TEST: Panzer stand immer waagerecht, unabhängig vom Gelände
+  // (nur position.y folgte der Hügelhöhe, rotation.x/z blieben immer 0).
+  test('Panzer-Neigung (Pitch/Roll) ist verfügbar und reagiert auf das Gelände', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    const rot = await page.evaluate(() => window.__testTankRotation);
+    expect(rot, '__testTankRotation nicht gesetzt').toBeTruthy();
+    expect(Number.isFinite(rot.x)).toBe(true);
+    expect(Number.isFinite(rot.z)).toBe(true);
+  });
+
+  // REGRESSION TEST: Hügel wurden auf Nutzer-Feedback hin verdreifacht
+  // (baseHillHeight-Amplituden 3.5/2.0/1.2 → 10.5/6.0/3.6).
+  test('Hügel sind deutlich höher als die alte (~7er) Amplitude', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const maxAbsHeight = await page.evaluate(() => {
+      let max = 0;
+      // Punkte weit weg von Fluss/Straßen abtasten (Fluss z=-30, Straßen x=-85/10/90, z=-11/-49)
+      for (let x = 200; x <= 400; x += 25) {
+        for (let z = 150; z <= 400; z += 25) {
+          max = Math.max(max, Math.abs(window.__testTerrainHeight(x, z)));
+        }
+      }
+      return max;
+    });
+
+    expect(maxAbsHeight).toBeGreaterThan(10);
+  });
+
+  // REGRESSION TEST: Nord-Süd-Verbindungsstraßen liefen früher an anderen
+  // X-Positionen als die Brücken (Straßen x=-200/0/200, Brücken x=-85/10/90) –
+  // dadurch führte keine durchgehende Straße auf eine Brücke.
+  test('Verbindungsstraßen liegen auf denselben X-Positionen wie die Brücken', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+
+    const bridgeXs = await page.evaluate(() => window.__testBridgeXs);
+    expect(bridgeXs.slice().sort((a, b) => a - b)).toEqual([-85, 10, 90]);
+  });
+
+});
+
+test.describe('Phase 6 – Zielfernrohr auf Hügeln (Regression)', () => {
+
+  // REGRESSION TEST: Die alte Scope-Kameraposition (3 Einheiten hinter dem
+  // Kanonenzentrum, +0.2 Y) lag innerhalb der Turmbox/-kuppel. Im 15°-Zoom
+  // füllte diese nahe Geometrie den ganzen Bildschirm (ein einziger,
+  // nahezu einfarbiger Frame statt der Umgebung).
+  test('Scope-Ansicht zeigt Umgebung, nicht nur eine einzelne Panzer-Fläche', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(300);
+
+    await page.click('#btn-scope');
+    await page.waitForTimeout(300);
+
+    const { distinctColors, sampleCount } = await page.evaluate(() => {
+      const canvas = document.getElementById('gameCanvas');
+      const tmp = document.createElement('canvas');
+      tmp.width = canvas.width;
+      tmp.height = canvas.height;
+      const ctx = tmp.getContext('2d');
+      ctx.drawImage(canvas, 0, 0);
+      const colors = new Set();
+      const points = [
+        [0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8],
+        [0.5, 0.15], [0.5, 0.85], [0.15, 0.5], [0.85, 0.5],
+      ];
+      for (const [fx, fy] of points) {
+        const px = ctx.getImageData(
+          Math.floor(canvas.width * fx), Math.floor(canvas.height * fy), 1, 1
+        ).data;
+        colors.add(`${px[0]},${px[1]},${px[2]}`);
+      }
+      return { distinctColors: colors.size, sampleCount: points.length };
+    });
+
+    expect(
+      distinctColors,
+      `Nur ${distinctColors}/${sampleCount} unterschiedliche Farben im Scope – vermutlich blockiert ein Panzer-Bauteil die Sicht`
+    ).toBeGreaterThan(1);
   });
 
 });

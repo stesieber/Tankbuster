@@ -296,13 +296,29 @@ html, body {
   z-index: 950;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* justify-content:center schneidet bei überlaufendem Inhalt in den
+     meisten Browsern den oberen Überlauf ab (Scrollbereich wird nur nach
+     unten berechnet) – dadurch liess sich nicht ganz nach oben scrollen.
+     flex-start + margin:auto oben/unten hält die Zentrierung, solange
+     alles ohne Scrollen passt, erlaubt aber vollen Scroll-Zugriff sobald
+     der Inhalt (z.B. 5 Panzer-Karten) überläuft. */
+  justify-content: flex-start;
   gap: 14px;
-  padding: 16px 10px;
+  /* Grosszügiges Bottom-Padding (+ Safe-Area-Inset für Notch/Home-Indicator-
+     Geräte): ohne das sass die letzte Karte (z.B. Puma, als einzige Karte
+     in der letzten Zeile) direkt am unteren Viewport-Rand, dort oft von der
+     Browser-/OS-Leiste überdeckt und dadurch auf echten Mobilgeräten nicht
+     antippbar, obwohl sie im DOM/Scrollbereich technisch erreichbar war. */
+  padding: 16px 10px calc(72px + env(safe-area-inset-bottom, 0px));
   background: rgba(6, 10, 4, 0.92);
   color: #fff;
   font-family: sans-serif;
   overflow-y: auto;
+  /* Body hat touch-action:none (fürs Spiel-Canvas) – hier explizit
+     vertikales Scrollen per Finger erlauben, sonst lässt sich die
+     Panzerauswahl auf Mobile nicht scrollen. */
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 #tank-select-title {
@@ -310,7 +326,11 @@ html, body {
   font-weight: bold;
   letter-spacing: 1px;
   text-shadow: 2px 2px 6px #000;
-  margin: 0;
+  /* auto-Margin oben hält die vertikale Zentrierung, solange der Inhalt
+     ohne Scrollen passt; sobald er überläuft, kollabiert der Margin auf 0
+     und der Titel bleibt oben scrollbar erreichbar (siehe Kommentar bei
+     #tank-select-screen). */
+  margin: auto 0 0;
   text-align: center;
 }
 
@@ -322,6 +342,7 @@ html, body {
   gap: 18px;
   width: 100%;
   max-width: 720px;
+  margin-bottom: auto;
 }
 
 .tank-card {
@@ -381,6 +402,15 @@ html, body {
   flex: 0 0 60px;
   text-align: right;
   opacity: 0.85;
+}
+
+/* Kurzer Hinweistext statt Stat-Balken, z.B. für den Raketenwerfer ohne
+   Kanone/MG ("Nur Raketen: 3x Salve à 5"). */
+.tank-stat-note {
+  flex: 1;
+  text-align: right;
+  opacity: 0.85;
+  font-style: italic;
 }
 
 .btn-select-tank {

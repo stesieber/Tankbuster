@@ -54,6 +54,7 @@ Tankbuster/
 | Vorwärts/Rückwärts | W / S | Linker Joystick Y |
 | Drehen | A / D | Linker Joystick X |
 | Turm drehen | Q / E | Rechter Joystick X |
+| Höhenwinkel (Kanone/MG/Rakete) | T / G | Rechter Joystick Y |
 
 ---
 
@@ -147,7 +148,12 @@ Three.js rechtshändiges System. Diese Konventionen gelten im gesamten Projekt:
 ### Zielfernrohr-Kamera
 
 Im Scope-Modus überschreibt `updateScopeCamera()` die Third-Person-Kamera:
-- Position: 3 Einheiten **hinter** der Mündung (entgegengesetzt zur Schussrichtung)
+- Position: 4.5 Einheiten **hinter** dem Kanonenzentrum (entgegengesetzt zur
+  Schussrichtung) plus 1.4 Einheiten nach oben. Der Y-Versatz muss über der
+  höchsten Turmkuppel liegen (Turmhöhe/2 + Kuppel ≈ 0.96) und der Z-Versatz
+  über der Turmbox-Tiefe (±1.25..1.35) hinausreichen – sonst steckt die
+  Kamera in der Turm-Geometrie (im 15°-Zoom füllt naheliegende Geometrie
+  dann den ganzen Bildschirm, man sieht keine Umgebung mehr).
 - `camera.lookAt()` auf einen Punkt 300 Einheiten vor der Mündung
 
 ---
