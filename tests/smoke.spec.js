@@ -125,6 +125,35 @@ test.describe('Phase 3 – Gegner-System', () => {
     expect(count, '5 Gegner müssen vorhanden sein').toBe(5);
   });
 
+  test('Tag/Nacht-Auswahl: Tag ist Standard, Nacht dunkelt Szene ab', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    // Panzerauswahl-Bildschirm liegt über dem Start-Screen und muss zuerst weg.
+    await selectTank(page);
+
+    await expect(page.locator('#btn-time-day')).toHaveClass(/active/);
+    await expect(page.locator('#btn-time-night')).not.toHaveClass(/active/);
+    expect(await page.evaluate(() => window.__testTimeOfDay)).toBe('day');
+
+    await page.click('#btn-time-night');
+    await page.waitForTimeout(100);
+
+    await expect(page.locator('#btn-time-night')).toHaveClass(/active/);
+    await expect(page.locator('#btn-time-day')).not.toHaveClass(/active/);
+    expect(await page.evaluate(() => window.__testTimeOfDay)).toBe('night');
+  });
+
+  test('Gewählte Tageszeit bleibt beim Spielstart erhalten', async ({ page }) => {
+    await page.goto('http://localhost:7777/');
+    await page.waitForTimeout(500);
+    await selectTank(page);
+    await page.click('#btn-time-night');
+    await page.click('#btn-diff-normal');
+    await page.waitForTimeout(500);
+
+    expect(await page.evaluate(() => window.__testTimeOfDay)).toBe('night');
+  });
+
   test('Gegner-Zähler zeigt 5 / 5 nach Spielstart', async ({ page }) => {
     await page.goto('http://localhost:7777/');
     await page.waitForTimeout(500);

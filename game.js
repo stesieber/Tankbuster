@@ -46,6 +46,60 @@ dirLight.shadow.camera.far    = 320;
 dirLight.shadow.bias = -0.0015;
 scene.add(dirLight);
 
+// ── Tageszeit (Tag/Nacht) ────────────────────────────────────────────────
+// Auf dem Start-Screen wählbar, per Sofort-Vorschau (Szene liegt hinter dem
+// halbtransparenten Overlay). Nacht dimmt Sonnen-/Umgebungslicht und färbt
+// sie kühler (Mondlicht-Anmutung), statt echte Mond-/Sterne-Geometrie zu
+// bauen – das reicht für die gewünschte Stimmungs-Auswahl.
+const TIME_OF_DAY_CONFIGS = {
+  day: {
+    sky: '#87CEEB', fogNear: 150, fogFar: 700,
+    hemiSky: 0xbfd9ff, hemiGround: 0x3a3a20, hemiIntensity: 0.55,
+    ambientIntensity: 0.3,
+    dirColor: 0xfff4e0, dirIntensity: 1.05,
+  },
+  night: {
+    sky: '#0a1230', fogNear: 80, fogFar: 420,
+    hemiSky: 0x1c2a4a, hemiGround: 0x10120a, hemiIntensity: 0.28,
+    ambientIntensity: 0.12,
+    dirColor: 0x8fa8ff, dirIntensity: 0.28,
+  },
+};
+
+let selectedTimeOfDay = 'day';
+
+function applyTimeOfDay(mode) {
+  const cfg = TIME_OF_DAY_CONFIGS[mode] || TIME_OF_DAY_CONFIGS.day;
+  selectedTimeOfDay = mode;
+
+  scene.background = new THREE.Color(cfg.sky);
+  scene.fog.color.set(cfg.sky);
+  scene.fog.near = cfg.fogNear;
+  scene.fog.far  = cfg.fogFar;
+
+  hemiLight.color.set(cfg.hemiSky);
+  hemiLight.groundColor.set(cfg.hemiGround);
+  hemiLight.intensity = cfg.hemiIntensity;
+
+  ambient.intensity = cfg.ambientIntensity;
+
+  dirLight.color.set(cfg.dirColor);
+  dirLight.intensity = cfg.dirIntensity;
+
+  document.getElementById('btn-time-day').classList.toggle('active', mode === 'day');
+  document.getElementById('btn-time-night').classList.toggle('active', mode === 'night');
+
+  window.__testTimeOfDay = mode;
+}
+
+['day', 'night'].forEach(mode => {
+  const btn = document.getElementById(`btn-time-${mode}`);
+  btn.addEventListener('click', () => applyTimeOfDay(mode));
+  btn.addEventListener('touchend', e => { e.preventDefault(); applyTimeOfDay(mode); }, { passive: false });
+});
+
+applyTimeOfDay('day');
+
 // ── Ground ─────────────────────────────────────────────────────────────────
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(1000, 1000, 100, 100),

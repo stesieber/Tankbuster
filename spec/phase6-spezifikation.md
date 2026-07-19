@@ -316,6 +316,7 @@ möglichen Browser-Leiste landet.
 | `__testRocketSalvoFiring` | boolean | Ob gerade eine 5er-Salve läuft (Feuersperre) |
 | `__testRocketPodTubeIndex` | number | Index (0/1/2) des Rohrs, aus dem die NÄCHSTE Salve kommt |
 | `__testRocketMuzzleLocalXs` | number[] \| null | Lokale X-Positionen der 3 Rohr-Mündungen (nur MLRS, sonst null) |
+| `__testTimeOfDay` | 'day' \| 'night' | Aktuell gewählte/angewendete Tageszeit (siehe unten) |
 
 ### Bugfix Panzerketten (Nutzer-Feedback)
 
@@ -349,6 +350,31 @@ atomar gesetzt. Gegner-Panzer setzten Yaw ohnehin schon per direkter
 Zuweisung (`enemy.mesh.rotation.y = …`), dort war keine Umstellung nötig.
 
 Gilt für Spieler- und Gegner-Panzer (nicht für Wracks/Trümmer).
+
+### Tag/Nacht-Auswahl (Nutzer-Feedback)
+
+Auf dem Start-Screen (Schwierigkeitsauswahl) gibt es jetzt eine Tageszeit-
+Auswahl mit zwei Buttons (`#btn-time-day`, `#btn-time-night`). Standard ist
+Tag. Ein Klick wirkt sofort als Live-Vorschau, da die 3D-Szene hinter dem
+halbtransparenten Overlay weiterrendert.
+
+`applyTimeOfDay(mode)` setzt anhand von `TIME_OF_DAY_CONFIGS.day`/`.night`:
+- `scene.background` und `scene.fog` (Farbe, Nah-/Fern-Distanz – Nacht hat
+  kürzere Sichtweite: 80–420 statt 150–700)
+- `hemiLight` (Himmel-/Boden-Farbe, Intensität)
+- `ambient`-Intensität
+- `dirLight` (Farbe, Intensität – Nacht wirkt wie kühles Mondlicht statt
+  warmem Sonnenlicht)
+
+Die aktive Auswahl bleibt bis zum Spielstart bestehen und wird über
+`classList.toggle('active', …)` an den Buttons sichtbar gemacht (analog zum
+bestehenden `.weapon-slot`/`btnScope`-Muster). Es werden **keine** eigene
+Mond-/Sterne-Geometrie oder Scheinwerfer gebaut – nur Licht-/Himmel-/
+Nebel-Werte geändert, das reicht für die gewünschte Stimmungs-Auswahl.
+
+Die aktive Auswahl bleibt bis zum Spielstart bestehen (kein Reset beim
+Wechsel zwischen Panzerauswahl und Start-Screen). Test-Hook: siehe
+`__testTimeOfDay` in obiger Tabelle.
 
 ### Bekannte Einschränkungen / Offene Punkte
 

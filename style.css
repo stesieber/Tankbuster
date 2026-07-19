@@ -253,6 +253,12 @@ html, body {
   background: #44aa44;
 }
 
+/* ── Start-Screen: Tageszeit-Auswahl ─────────────────────────────────────── */
+.btn-time.active {
+  border-color: #fff !important;
+  transform: scale(1.05);
+}
+
 /* Raketen-Button */
 #btn-rocket {
   position: fixed;
